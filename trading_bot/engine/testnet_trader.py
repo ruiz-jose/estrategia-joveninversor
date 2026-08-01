@@ -28,7 +28,7 @@ class BinanceTestnetTrader:
         self.strategy = Strategy(self.config)
         self.risk_manager = RiskManager(self.config)
         self.notifier = TelegramNotifier()
-        self.trade_log_file = r"C:\Users\Pc\.gemini\antigravity\scratch\trading_bot\live_testnet_trades.json"
+        self.trade_log_file = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "live_testnet_trades.json")
         self.slippage_pct = float(self.config.get("slippage_pct", 0.0005))
         self.max_drawdown_pct = float(self.config.get("max_drawdown_pct", 25.0))
         self.min_signal_strength = float(self.config.get("min_signal_strength", 4))

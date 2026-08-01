@@ -91,8 +91,8 @@ SYMBOL=BTCUSDT
 TIMEFRAME=1d
 
 # ── Notificaciones de Telegram ──────────────────────────────────────
-TELEGRAM_BOT_TOKEN=***REDACTED_TELEGRAM_BOT_TOKEN***
-TELEGRAM_CHAT_ID=***REDACTED_TELEGRAM_CHAT_ID***
+TELEGRAM_BOT_TOKEN=tu_telegram_bot_token_aqui
+TELEGRAM_CHAT_ID=tu_telegram_chat_id_aqui
 ```
 
 *(Para guardar en `nano`: Presiona `Ctrl + O`, luego `Enter` y sal con `Ctrl + X`)*.

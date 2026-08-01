@@ -42,10 +42,10 @@ TIMEFRAME=1d
 
 # ── 5. NOTIFICACIONES TELEGRAM ───────────────────────────────────────
 # Token obtenido con @BotFather
-TELEGRAM_BOT_TOKEN=***REDACTED_TELEGRAM_BOT_TOKEN***
+TELEGRAM_BOT_TOKEN=tu_telegram_bot_token_aqui
 
 # Tu Chat ID personal obtenido con @userinfobot
-TELEGRAM_CHAT_ID=***REDACTED_TELEGRAM_CHAT_ID***
+TELEGRAM_CHAT_ID=tu_telegram_chat_id_aqui
 ```
 
 ---

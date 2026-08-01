@@ -44,7 +44,7 @@ def run_preset(preset_name, overrides):
                 config["symbol"] = sym
                 config["timeframe"] = tf
 
-                df = fetcher.fetch_ohlcv(sym, tf, limit=500)
+                df = fetcher.fetch_ohlcv(sym, tf, limit=1500)
                 res = Backtester(config).run(df)
                 s = res["summary"]
                 results.append((sym, tf, s))
