@@ -15,10 +15,26 @@ class Backtester:
         self.strategy = Strategy(config)
         self.risk_manager = RiskManager(config)
         self.fee_pct = float(config.get("fee_pct", 0.00075))
+        self.slippage_pct = float(config.get("slippage_pct", 0.0005))
+        self.max_drawdown_pct = float(config.get("max_drawdown_pct", 25.0))
+        self.min_signal_strength = float(config.get("min_signal_strength", 4))
         
-    def run(self, df: pd.DataFrame) -> dict:
-        df_ind = add_all_indicators(df, self.config)
-        df_sig = self.strategy.generate_signals(df_ind)
+    def run(self, df: pd.DataFrame, indicator_warmup_df: pd.DataFrame | None = None) -> dict:
+        """Run the simulation, optionally warming indicators with prior candles.
+
+        ``indicator_warmup_df`` is used only to establish indicator state; no trade
+        can be opened or closed during those candles.  This lets out-of-sample
+        tests retain the information that would be available in a live run.
+        """
+        warmup_len = 0
+        if indicator_warmup_df is not None and not indicator_warmup_df.empty:
+            warmup_len = len(indicator_warmup_df)
+            source_df = pd.concat([indicator_warmup_df, df], ignore_index=True)
+        else:
+            source_df = df.reset_index(drop=True)
+
+        df_ind = add_all_indicators(source_df, self.config)
+        df_sig = self.strategy.generate_signals(df_ind).iloc[warmup_len:].reset_index(drop=True)
         
         initial_capital = float(self.config.get("initial_capital", 10000.0))
         balance = initial_capital
@@ -28,7 +44,9 @@ class Backtester:
         position = None
         trades = []
         equity_curve = []
-        
+        halted = False
+        halted_at_trade = None
+
         for i in range(len(df_sig)):
             curr = df_sig.iloc[i]
             timestamp = str(curr["timestamp"])
@@ -61,6 +79,9 @@ class Backtester:
             dd = (peak_balance - current_equity) / peak_balance * 100.0 if peak_balance > 0 else 0.0
             if dd > max_drawdown:
                 max_drawdown = float(dd)
+            if not halted and dd >= self.max_drawdown_pct:
+                halted = True
+                halted_at_trade = len(trades)
 
             # 1. Manage Active Position
             if position is not None:
@@ -81,14 +102,14 @@ class Backtester:
                 
                 if pos_type == "LONG":
                     if low <= sl:
-                        exit_price = sl
+                        exit_price = sl * (1 - self.slippage_pct)
                         exit_reason = "Break-Even / Stop Loss" if sl > position["entry_price"] else "Stop Loss"
                     elif high >= tp:
                         exit_price = tp
                         exit_reason = "Take Profit"
                 elif pos_type == "SHORT":
                     if high >= sl:
-                        exit_price = sl
+                        exit_price = sl * (1 + self.slippage_pct)
                         exit_reason = "Break-Even / Stop Loss" if sl < position["entry_price"] else "Stop Loss"
                     elif low <= tp:
                         exit_price = tp
@@ -124,19 +145,20 @@ class Backtester:
                     position = None
 
             # 2. Check for New Signal
-            if position is None and signal != 0 and strength >= 3:
+            if not halted and position is None and signal != 0 and strength >= self.min_signal_strength:
+                fill_price = close * (1 + self.slippage_pct) if signal == 1 else close * (1 - self.slippage_pct)
                 levels = self.risk_manager.calculate_trade_levels(
-                    entry_price=close,
+                    entry_price=fill_price,
                     atr=atr,
                     signal_type=signal,
                     current_balance=balance,
                     ema50=ema50
                 )
-                
+
                 position = {
                     "type": "LONG" if signal == 1 else "SHORT",
                     "entry_time": timestamp,
-                    "entry_price": float(close),
+                    "entry_price": float(fill_price),
                     "stop_loss": float(levels["stop_loss"]),
                     "take_profit": float(levels["take_profit"]),
                     "sl_distance": float(levels["sl_distance"]),
@@ -160,10 +182,12 @@ class Backtester:
         total_net_pnl = balance - initial_capital
         total_return_pct = (total_net_pnl / initial_capital) * 100.0
         
-        if len(trades) > 1:
+        if len(trades) > 1 and len(df_sig) > 1:
             returns = [t["pnl_pct"] for t in trades]
             std_dev = float(np.std(returns))
-            sharpe_ratio = float((np.mean(returns) / std_dev * np.sqrt(252))) if std_dev > 0 else 0.0
+            span_days = (pd.Timestamp(df_sig.iloc[-1]["timestamp"]) - pd.Timestamp(df_sig.iloc[0]["timestamp"])).total_seconds() / 86400.0
+            trades_per_year = (total_trades / (span_days / 365.25)) if span_days > 0 else 0.0
+            sharpe_ratio = float((np.mean(returns) / std_dev * np.sqrt(trades_per_year))) if std_dev > 0 and trades_per_year > 0 else 0.0
         else:
             sharpe_ratio = 0.0
             
@@ -198,6 +222,8 @@ class Backtester:
                 "profit_factor": round(float(profit_factor), 2),
                 "max_drawdown": round(float(max_drawdown), 2),
                 "sharpe_ratio": round(float(sharpe_ratio), 2),
+                "kill_switch_triggered": bool(halted),
+                "kill_switch_at_trade": halted_at_trade,
                 "volume_profile": vol_profile
             },
             "trades": trades,

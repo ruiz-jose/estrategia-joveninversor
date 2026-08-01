@@ -19,6 +19,17 @@ class DataFetcher:
         "1d": "1d"
     }
 
+    # Candle duration in milliseconds, used to detect and drop a still-forming last candle
+    TF_DURATION_MS = {
+        "1m": 60_000,
+        "5m": 300_000,
+        "15m": 900_000,
+        "30m": 1_800_000,
+        "1h": 3_600_000,
+        "4h": 14_400_000,
+        "1d": 86_400_000
+    }
+
     @staticmethod
     def format_symbol(symbol: str) -> str:
         """Convert BTC/USDT to BTCUSDT for Binance API."""
@@ -64,11 +75,11 @@ class DataFetcher:
             except Exception as e:
                 print(f"Error fetching batch from Binance for {symbol}: {e}")
                 if not all_klines:
-                    return self._generate_synthetic_ohlcv(symbol, limit)
+                    raise RuntimeError(f"Binance API unavailable for {symbol}. Cannot operate on real exchange without live data.") from e
                 break
-                
+
         if not all_klines:
-            return self._generate_synthetic_ohlcv(symbol, limit)
+            raise RuntimeError(f"No data returned from Binance for {symbol}. Cannot operate on real exchange without live data.")
 
         df = pd.DataFrame(all_klines, columns=[
             "timestamp", "open", "high", "low", "close", "volume",
@@ -79,11 +90,22 @@ class DataFetcher:
         # Deduplicate and sort by timestamp
         df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
         df = df.drop_duplicates(subset=["timestamp"]).sort_values(by="timestamp").reset_index(drop=True)
-        
+
         for col in ["open", "high", "low", "close", "volume"]:
             df[col] = df[col].astype(float)
-            
-        return df[["timestamp", "open", "high", "low", "close", "volume"]]
+
+        df = df[["timestamp", "open", "high", "low", "close", "volume"]]
+
+        # Drop the last candle if it hasn't closed yet, so every caller (backtest,
+        # live trader, scanner) only ever sees fully closed candles - avoids repainting.
+        duration_ms = self.TF_DURATION_MS.get(interval)
+        if duration_ms is not None and not df.empty:
+            last_open_ms = int(df.iloc[-1]["timestamp"].value // 1_000_000)
+            now_ms = int(pd.Timestamp.utcnow().value // 1_000_000)
+            if last_open_ms + duration_ms > now_ms:
+                df = df.iloc[:-1].reset_index(drop=True)
+
+        return df
 
     def _generate_synthetic_ohlcv(self, symbol: str, limit: int = 300) -> pd.DataFrame:
         """Fallback synthetic candle generator for offline/sandbox testing."""

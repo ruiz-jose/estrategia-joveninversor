@@ -16,8 +16,9 @@ from core.risk_manager import RiskManager
 
 class BinanceTestnetTrader:
     """
-    Binance Testnet Live Trader Engine.
-    Executes real-time paper trading on Binance Spot/Futures Testnet with 1,000 USDT virtual balance.
+    Candle-based paper-trading monitor using Binance market data.
+
+    It records simulated positions locally; it does not submit exchange orders.
     """
     
     def __init__(self, api_key: str = None, api_secret: str = None, testnet: bool = True):
@@ -28,6 +29,9 @@ class BinanceTestnetTrader:
         self.risk_manager = RiskManager(self.config)
         self.notifier = TelegramNotifier()
         self.trade_log_file = r"C:\Users\Pc\.gemini\antigravity\scratch\trading_bot\live_testnet_trades.json"
+        self.slippage_pct = float(self.config.get("slippage_pct", 0.0005))
+        self.max_drawdown_pct = float(self.config.get("max_drawdown_pct", 25.0))
+        self.min_signal_strength = float(self.config.get("min_signal_strength", 4))
         
         # Initialize CCXT Binance Exchange
         self.exchange = ccxt.binance({
@@ -51,10 +55,20 @@ class BinanceTestnetTrader:
         if os.path.exists(self.trade_log_file):
             try:
                 with open(self.trade_log_file, "r", encoding="utf-8") as f:
-                    return json.load(f)
+                    data = json.load(f)
+                    data.setdefault("peak_balance", data.get("account_balance", float(self.config.get("initial_capital", 100.0))))
+                    data.setdefault("trading_halted", False)
+                    return data
             except Exception as e:
                 print(f"Error loading trades log: {e}")
-        return {"account_balance": float(self.config.get("initial_capital", 100.0)), "active_position": None, "completed_trades": []}
+        initial_balance = float(self.config.get("initial_capital", 100.0))
+        return {
+            "account_balance": initial_balance,
+            "peak_balance": initial_balance,
+            "trading_halted": False,
+            "active_position": None,
+            "completed_trades": []
+        }
 
     def save_active_trades(self, data):
         """Save trades log to JSON file."""
@@ -82,14 +96,42 @@ class BinanceTestnetTrader:
         
         latest_candle = df_sig.iloc[-1]
         curr_price = float(latest_candle["close"])
+        candle_high = float(latest_candle["high"])
+        candle_low = float(latest_candle["low"])
         timestamp = str(latest_candle["timestamp"])
         
         data = self.load_active_trades()
         balance = float(data.get("account_balance", 1000.0))
+        peak_balance = float(data.get("peak_balance", balance))
+        trading_halted = bool(data.get("trading_halted", False))
         active_pos = data.get("active_position")
-        
+
         print(f"[{timestamp}] Checking {symbol} ({timeframe}) - Current Price: ${curr_price:,.2f} | Balance: ${balance:,.2f}")
-        
+
+        # Drawdown kill-switch: track peak equity and halt new entries once exceeded
+        current_equity = balance
+        if active_pos is not None:
+            entry_price = float(active_pos["entry_price"])
+            qty = float(active_pos["position_size_asset"])
+            if active_pos["type"] == "LONG":
+                current_equity += (curr_price - entry_price) * qty
+            else:
+                current_equity += (entry_price - curr_price) * qty
+
+        if current_equity > peak_balance:
+            peak_balance = current_equity
+        drawdown_pct = (peak_balance - current_equity) / peak_balance * 100.0 if peak_balance > 0 else 0.0
+
+        if not trading_halted and drawdown_pct >= self.max_drawdown_pct:
+            trading_halted = True
+            print(f"[KILL-SWITCH] Drawdown {drawdown_pct:.2f}% >= {self.max_drawdown_pct:.2f}% - pausing new entries.")
+            self.notifier.send_message(
+                f"🛑 <b>KILL-SWITCH ACTIVADO</b>\n\nDrawdown actual: {drawdown_pct:.2f}% (límite {self.max_drawdown_pct:.2f}%).\nSe pausa la apertura de nuevas operaciones hasta revisión manual."
+            )
+
+        data["peak_balance"] = round(float(peak_balance), 2)
+        data["trading_halted"] = trading_halted
+
         # 2. Check Active Position
         if active_pos is not None:
             pos_type = active_pos["type"]
@@ -108,17 +150,17 @@ class BinanceTestnetTrader:
             exit_reason = None
             
             if pos_type == "LONG":
-                if curr_price <= sl:
-                    exit_price = sl
+                if candle_low <= sl:
+                    exit_price = sl * (1 - self.slippage_pct)
                     exit_reason = "Break-Even / Stop Loss" if sl >= entry_price else "Stop Loss"
-                elif curr_price >= tp:
+                elif candle_high >= tp:
                     exit_price = tp
                     exit_reason = "Take Profit"
             else: # SHORT
-                if curr_price >= sl:
-                    exit_price = sl
+                if candle_high >= sl:
+                    exit_price = sl * (1 + self.slippage_pct)
                     exit_reason = "Break-Even / Stop Loss" if sl <= entry_price else "Stop Loss"
-                elif curr_price <= tp:
+                elif candle_low <= tp:
                     exit_price = tp
                     exit_reason = "Take Profit"
                     
@@ -152,21 +194,23 @@ class BinanceTestnetTrader:
                 return data
 
         # 3. Check for New Entry Signal
-        if active_pos is None and latest_candle["signal"] != 0 and latest_candle["signal_strength"] >= 3:
+        if (not trading_halted and active_pos is None and latest_candle["signal"] != 0
+                and latest_candle["signal_strength"] >= self.min_signal_strength):
             signal_type = int(latest_candle["signal"])
+            fill_price = curr_price * (1 + self.slippage_pct) if signal_type == 1 else curr_price * (1 - self.slippage_pct)
             levels = self.risk_manager.calculate_trade_levels(
-                entry_price=curr_price,
+                entry_price=fill_price,
                 atr=float(latest_candle["atr"]),
                 signal_type=signal_type,
                 current_balance=balance,
                 ema50=float(latest_candle["ema_50"])
             )
-            
+
             new_pos = {
                 "type": "LONG" if signal_type == 1 else "SHORT",
                 "symbol": symbol,
                 "entry_time": timestamp,
-                "entry_price": curr_price,
+                "entry_price": fill_price,
                 "stop_loss": levels["stop_loss"],
                 "take_profit": levels["take_profit"],
                 "sl_distance": levels["sl_distance"],
@@ -182,7 +226,9 @@ class BinanceTestnetTrader:
             
             # Send Telegram Notification on Trade Open
             self.notifier.send_trade_opened(new_pos)
-            
+
+        # Persist peak_balance / trading_halted even when no position was opened or closed this tick
+        self.save_active_trades(data)
         return data
 
     def send_midday_report(self):

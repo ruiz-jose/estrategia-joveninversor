@@ -18,7 +18,13 @@ class Strategy:
         reasons = [""] * len(df)
         
         adx_thresh = float(self.config.get("adx_threshold", 18))
-        
+        rsi_long_min = float(self.config.get("rsi_long_min", 40))
+        rsi_long_max = float(self.config.get("rsi_long_max", 68))
+        rsi_short_min = float(self.config.get("rsi_short_min", 32))
+        rsi_short_max = float(self.config.get("rsi_short_max", 60))
+        pullback_ema20_pct = float(self.config.get("pullback_ema20_pct", 0.006))
+        pullback_ema50_pct = float(self.config.get("pullback_ema50_pct", 0.008))
+
         for i in range(2, len(df)):
             curr = df.iloc[i]
             prev = df.iloc[i-1]
@@ -49,25 +55,25 @@ class Strategy:
             
             # 2. Trend Bias & Pullback
             ema_bullish = (close > ema200) and (ema20 > ema50)
-            pullback_long = (low <= ema20 * 1.006) and (close >= ema50 * 0.992) and (close > open_p)
-            
+            pullback_long = (low <= ema20 * (1 + pullback_ema20_pct)) and (close >= ema50 * (1 - pullback_ema50_pct)) and (close > open_p)
+
             # 3. Momentum & RSI
             macd_bullish = (macd_hist > macd_hist_prev) or (macd > macd_sig)
-            rsi_valid_long = 40 <= rsi <= 68
+            rsi_valid_long = rsi_long_min <= rsi <= rsi_long_max
             adx_valid = adx >= adx_thresh
-            
+
             # --- SHORT CONDITIONAL CHECKS ---
             st_bearish = (st_dir == -1)
             st_flip_short = (st_dir == -1) and (st_dir_prev == 1)
-            
+
             ema_bearish = (close < ema200) and (ema20 < ema50)
-            pullback_short = (high >= ema20 * 0.994) and (close <= ema50 * 1.008) and (close < open_p)
-            
+            pullback_short = (high >= ema20 * (1 - pullback_ema20_pct)) and (close <= ema50 * (1 + pullback_ema50_pct)) and (close < open_p)
+
             macd_bearish = (macd_hist < macd_hist_prev) or (macd < macd_sig)
-            rsi_valid_short = 32 <= rsi <= 60
+            rsi_valid_short = rsi_short_min <= rsi <= rsi_short_max
             
             # EVALUATE LONG (Supertrend Flip OR EMA Pullback in ST Bull Trend)
-            if (st_flip_long and close > ema200) or (st_bullish and ema_bullish and pullback_long and macd_bullish and rsi_valid_long):
+            if adx_valid and ((st_flip_long and close > ema200) or (st_bullish and ema_bullish and pullback_long and macd_bullish and rsi_valid_long)):
                 score = 3
                 reasons_list = ["Supertrend Alcista", "Precio > EMA200"]
                 if macd_bullish: score += 1; reasons_list.append("Impulso MACD")
@@ -78,7 +84,7 @@ class Strategy:
                 reasons[i] = " LONG: " + " | ".join(reasons_list)
                 
             # EVALUATE SHORT
-            elif (st_flip_short and close < ema200) or (st_bearish and ema_bearish and pullback_short and macd_bearish and rsi_valid_short):
+            elif adx_valid and ((st_flip_short and close < ema200) or (st_bearish and ema_bearish and pullback_short and macd_bearish and rsi_valid_short)):
                 score = 3
                 reasons_list = ["Supertrend Bajista", "Precio < EMA200"]
                 if macd_bearish: score += 1; reasons_list.append("Impulso MACD Bajista")

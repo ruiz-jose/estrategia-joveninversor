@@ -38,7 +38,11 @@ class RiskManager:
             
         position_size_asset = risk_amount / sl_distance
         position_size_usd = position_size_asset * entry_price
-        
+
+        # Never use more than 95% of available balance
+        position_size_usd = min(position_size_usd, current_balance * 0.95)
+        position_size_asset = position_size_usd / entry_price
+
         return {
             "entry_price": float(entry_price),
             "stop_loss": float(stop_loss),
