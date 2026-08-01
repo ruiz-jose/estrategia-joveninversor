@@ -1,0 +1,27 @@
+# Archivo de variables de entorno con CLAVES PRIVADAS (NUNCA subir a GitHub)
+.env
+.env.*
+!.env.example
+
+# Archivos de caché de Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Entornos virtuales
+venv/
+.venv/
+env/
+ENV/
+
+# Registros y Logs de ejecución
+*.log
+*.json
+!package.json
+
+# Archivos de IDE y SO
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
