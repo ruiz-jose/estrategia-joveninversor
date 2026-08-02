@@ -17,25 +17,33 @@ from core.risk_manager import RiskManager
 
 class BinanceTestnetTrader:
     """
-    Candle-based paper-trading monitor using Binance market data.
+    Candle-based trading monitor using Binance market data.
 
-    It records simulated positions locally; it does not submit exchange orders.
+    When valid API credentials are present (BINANCE_API_KEY/SECRET in .env), LONG
+    entries/exits are submitted as real market orders (Testnet or real account,
+    per TESTNET). SHORT signals are never sent for real: a Spot account cannot
+    short-sell, so they are logged/notified and skipped. Without credentials it
+    falls back to the original local-only paper-trading simulation.
     """
-    
-    def __init__(self, api_key: str = None, api_secret: str = None, testnet: bool = True):
+
+    def __init__(self, api_key: str = None, api_secret: str = None, testnet: bool = None):
         self._file_lock = threading.Lock()
-        self.testnet = testnet
         self.config = DEFAULT_CONFIG.copy()
         self.fetcher = DataFetcher()
         self.strategy = Strategy(self.config)
         self.risk_manager = RiskManager(self.config)
-        self.notifier = TelegramNotifier()
+        self.notifier = TelegramNotifier()  # also loads .env into os.environ as a side effect
+
+        self.testnet = testnet if testnet is not None else (os.getenv("TESTNET", "true").lower() == "true")
+        api_key = api_key or os.getenv("BINANCE_API_KEY")
+        api_secret = api_secret or os.getenv("BINANCE_API_SECRET")
+
         self.trade_log_file = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "live_testnet_trades.json")
         self.slippage_pct = float(self.config.get("slippage_pct", 0.0005))
         self.max_drawdown_pct = float(self.config.get("max_drawdown_pct", 25.0))
         self.min_signal_strength = float(self.config.get("min_signal_strength", 4))
         self.min_notional_usd = float(self.config.get("min_notional_usd", 10.0))
-        
+
         # Initialize CCXT Binance Exchange
         self.exchange = ccxt.binance({
             "apiKey": api_key or "",
@@ -45,14 +53,50 @@ class BinanceTestnetTrader:
                 "defaultType": "spot",
             }
         })
-        
+
         if self.testnet:
-            # Set Binance Spot Testnet URLs
-            self.exchange.urls["api"] = {
-                "public": "https://testnet.binance.vision/api",
-                "private": "https://testnet.binance.vision/api",
-            }
-            
+            try:
+                self.exchange.set_sandbox_mode(True)
+            except Exception:
+                # Fallback for ccxt versions without full Binance sandbox url mapping.
+                self.exchange.urls["api"] = {
+                    "public": "https://testnet.binance.vision/api",
+                    "private": "https://testnet.binance.vision/api",
+                }
+
+        # Real order placement requires valid, correctly-scoped credentials (Testnet
+        # keys only work against testnet.binance.vision; real-account keys only
+        # work against the live API - they are never interchangeable).
+        self.live_trading_enabled = bool(api_key and api_secret)
+        if self.live_trading_enabled:
+            try:
+                self.exchange.load_markets()
+                self.exchange.fetch_balance()  # validates the API key/secret actually authenticate here
+                print(f"[LiveTrading] Ordenes reales HABILITADAS en {'Binance Testnet' if self.testnet else 'Binance REAL'} para {self.config.get('symbol')}.")
+            except Exception as e:
+                print(f"[LiveTrading] No se pudo autenticar contra Binance ({'Testnet' if self.testnet else 'Real'}): {e}. Se desactivan las ordenes reales, cae a simulacion local.")
+                self.live_trading_enabled = False
+
+    def _place_market_order(self, symbol: str, side: str, amount: float):
+        """
+        Submits a real market order to Binance (Testnet or real, per self.testnet).
+        Returns (filled_amount, avg_fill_price).
+        """
+        amount = float(self.exchange.amount_to_precision(symbol, amount))
+        if amount <= 0:
+            raise ValueError(f"El monto de la orden redondea a 0 con la precision del exchange para {symbol}.")
+
+        order = self.exchange.create_order(symbol, "market", side, amount)
+
+        filled = order.get("filled") or order.get("amount") or amount
+        avg_price = order.get("average") or order.get("price")
+        if not avg_price:
+            cost = order.get("cost")
+            if cost and filled:
+                avg_price = float(cost) / float(filled)
+
+        return float(filled), (float(avg_price) if avg_price else None)
+
     def load_active_trades(self):
         """Load live trades log from JSON file and sync live Binance balance if available."""
         with self._file_lock:
@@ -202,6 +246,22 @@ class BinanceTestnetTrader:
                 active_pos["stop_loss"] = float(new_sl)
 
             if exit_price is not None:
+                if active_pos.get("live") and self.live_trading_enabled:
+                    try:
+                        # LONG-only: SHORT positions are never opened as real orders (see entry logic).
+                        filled_qty, avg_price = self._place_market_order(symbol, "sell", qty)
+                        if avg_price:
+                            exit_price = avg_price
+                        print(f"[LiveTrading] Orden REAL de venta ejecutada: {filled_qty} {symbol} @ ${exit_price:,.2f} ({exit_reason})")
+                    except Exception as e:
+                        print(f"[LiveTrading] Error al cerrar posicion real {pos_type} {symbol}: {e}")
+                        self.notifier.send_message(
+                            f"⚠️ <b>Error cerrando posicion REAL</b>\n{pos_type} {symbol} deberia cerrar por {exit_reason} pero la orden fallo: {e}\nRevisa manualmente en Binance."
+                        )
+                        # Keep the position open locally so the next check retries the close.
+                        self.save_active_trades(data)
+                        return data
+
                 pnl_gross = (exit_price - entry_price) * qty if pos_type == "LONG" else (entry_price - exit_price) * qty
                 fee = (active_pos["position_size_usd"] + (qty * exit_price)) * 0.00075
                 net_pnl = pnl_gross - fee
@@ -217,7 +277,8 @@ class BinanceTestnetTrader:
                     "exit_price": exit_price,
                     "pnl_usd": round(net_pnl, 2),
                     "pnl_pct": round((net_pnl / active_pos["position_size_usd"]) * 100.0, 2),
-                    "exit_reason": exit_reason
+                    "exit_reason": exit_reason,
+                    "live": bool(active_pos.get("live", False))
                 }
                 
                 data["completed_trades"].append(trade_record)
@@ -260,6 +321,43 @@ class BinanceTestnetTrader:
                 self.save_active_trades(data)
                 return data
 
+            # A Spot account cannot short-sell an asset it doesn't hold. Real order
+            # placement is LONG-only; SHORT signals are logged/notified and skipped
+            # rather than silently faked, so the local state never claims a real
+            # position that doesn't exist on the exchange.
+            if signal_type == -1 and self.live_trading_enabled:
+                print(f"Signal SHORT ignorado en {symbol}: cuenta Spot no admite venta en corto (requiere Margin/Futures).")
+                self.notifier.send_message(
+                    f"ℹ️ Señal SHORT detectada en {symbol} (fuerza {int(latest_candle['signal_strength'])}) pero se ignora: cuenta Spot no permite abrir cortos reales."
+                )
+                self.save_active_trades(data)
+                return data
+
+            qty = levels["position_size_asset"]
+            is_live_order = False
+
+            if signal_type == 1 and self.live_trading_enabled:
+                try:
+                    filled_qty, avg_price = self._place_market_order(symbol, "buy", qty)
+                    if avg_price:
+                        # Shift SL/TP by the same absolute distance the real fill
+                        # deviated from the pre-trade estimate, preserving the
+                        # intended $ risk instead of re-deriving levels from scratch.
+                        delta = avg_price - fill_price
+                        levels["stop_loss"] += delta
+                        levels["take_profit"] += delta
+                        fill_price = avg_price
+                    if filled_qty:
+                        qty = filled_qty
+                    levels["position_size_usd"] = qty * fill_price
+                    is_live_order = True
+                    print(f"[LiveTrading] Orden REAL de compra ejecutada: {qty} {symbol} @ ${fill_price:,.2f} ({'Testnet' if self.testnet else 'REAL'})")
+                except Exception as e:
+                    print(f"[LiveTrading] Error colocando orden real de compra en {symbol}: {e}")
+                    self.notifier.send_message(f"⚠️ Error al abrir orden real BUY {symbol}: {e}")
+                    self.save_active_trades(data)
+                    return data
+
             new_pos = {
                 "type": "LONG" if signal_type == 1 else "SHORT",
                 "symbol": symbol,
@@ -268,12 +366,13 @@ class BinanceTestnetTrader:
                 "stop_loss": levels["stop_loss"],
                 "take_profit": levels["take_profit"],
                 "sl_distance": levels["sl_distance"],
-                "position_size_asset": levels["position_size_asset"],
+                "position_size_asset": qty,
                 "position_size_usd": levels["position_size_usd"],
                 "strength": int(latest_candle["signal_strength"]),
-                "reason": str(latest_candle["reason"])
+                "reason": str(latest_candle["reason"]),
+                "live": is_live_order,
             }
-            
+
             data["active_position"] = new_pos
             self.save_active_trades(data)
             print(f"OPENED NEW POSITION {'LONG' if signal_type == 1 else 'SHORT'} @ ${fill_price:,.2f} | SL: ${levels['stop_loss']:,.2f} | TP: ${levels['take_profit']:,.2f}")
