@@ -25,3 +25,6 @@ ENV/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Archivos de estado/ejecución del bot
+server.pid
