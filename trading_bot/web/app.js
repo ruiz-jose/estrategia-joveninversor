@@ -7,12 +7,35 @@ document.addEventListener("DOMContentLoaded", () => {
     const tvChartContainer = document.getElementById("tvChartContainer");
     const equityChartContainer = document.getElementById("equityChartContainer");
 
+    const navBtnLive = document.getElementById("navBtnLive");
+    const navBtnSimulator = document.getElementById("navBtnSimulator");
+    const viewLive = document.getElementById("viewLive");
+    const viewSimulator = document.getElementById("viewSimulator");
+
     let mainChart = null;
     let rsiChart = null;
     let macdChart = null;
     let equityChart = null;
 
     let lastBacktestData = null;
+
+    // Main nav: Bot en Vivo <-> Simulador
+    navBtnLive.addEventListener("click", () => {
+        navBtnLive.classList.add("active");
+        navBtnSimulator.classList.remove("active");
+        viewLive.classList.remove("hidden");
+        viewSimulator.classList.add("hidden");
+    });
+
+    navBtnSimulator.addEventListener("click", () => {
+        navBtnSimulator.classList.add("active");
+        navBtnLive.classList.remove("active");
+        viewSimulator.classList.remove("hidden");
+        viewLive.classList.add("hidden");
+        if (!lastBacktestData) {
+            runBacktest();
+        }
+    });
 
     // Tab switching
     btnTabChart.addEventListener("click", () => {
@@ -314,8 +337,82 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     }
 
-    // Initial run
-    runBacktest();
+    async function loadLiveBotState() {
+        try {
+            const res = await fetch("/api/testnet");
+            const data = await res.json();
+            if (data.status === "success") {
+                renderLiveBotState(data.state);
+            }
+        } catch (e) {
+            console.error("Error loading live bot state:", e);
+        }
+    }
+
+    function renderLiveBotState(state) {
+        const statusBadge = document.getElementById("liveBotStatusBadge");
+        const statusText = document.getElementById("liveBotStatusText");
+        if (state.trading_halted) {
+            statusBadge.classList.add("halted");
+            statusText.textContent = "Pausado (Kill-Switch)";
+        } else {
+            statusBadge.classList.remove("halted");
+            statusText.textContent = "Activo";
+        }
+
+        document.getElementById("liveBalance").textContent = `$${state.account_balance.toFixed(2)}`;
+        document.getElementById("livePeak").textContent = `Pico: $${state.peak_balance.toFixed(2)}`;
+
+        const trades = state.completed_trades || [];
+        const totalPnl = trades.reduce((sum, t) => sum + t.pnl_usd, 0);
+        document.getElementById("liveTradesCount").textContent = trades.length;
+        const netPnlEl = document.getElementById("liveNetPnl");
+        netPnlEl.textContent = `PnL Total: ${totalPnl >= 0 ? '+' : ''}$${totalPnl.toFixed(2)}`;
+        netPnlEl.className = `stat-sub ${totalPnl >= 0 ? '' : 'negative'}`;
+
+        const posBox = document.getElementById("livePositionBox");
+        const pos = state.active_position;
+        if (pos) {
+            posBox.innerHTML = `
+                <div class="live-position-card ${pos.type.toLowerCase()}">
+                    <span class="trade-badge ${pos.type.toLowerCase()}">${pos.type}</span>
+                    <div class="live-position-details">
+                        <span><strong>${pos.symbol}</strong> · Entrada ${pos.entry_time}</span>
+                        <span>Precio entrada: $${pos.entry_price.toLocaleString()} &nbsp;|&nbsp; SL: $${pos.stop_loss.toLocaleString()} &nbsp;|&nbsp; TP: $${pos.take_profit.toLocaleString()}</span>
+                        <span>Tamaño: $${pos.position_size_usd.toFixed(2)} · Fuerza señal: ${pos.strength} · ${pos.reason}</span>
+                    </div>
+                </div>
+            `;
+        } else {
+            posBox.innerHTML = `<span class="empty-state">Sin posición abierta</span>`;
+        }
+
+        const tbody = document.getElementById("liveTradesTableBody");
+        if (trades.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="8" class="empty-state">Sin operaciones cerradas todavía.</td></tr>`;
+        } else {
+            tbody.innerHTML = trades.slice().reverse().map(t => {
+                const isWin = t.pnl_usd >= 0;
+                return `
+                    <tr>
+                        <td>#${t.id}</td>
+                        <td><span class="trade-badge ${t.type.toLowerCase()}">${t.type}</span></td>
+                        <td>${t.entry_time}</td>
+                        <td>$${t.entry_price.toLocaleString()}</td>
+                        <td>$${t.exit_price.toLocaleString()}</td>
+                        <td class="${isWin ? 'pnl-positive' : 'pnl-negative'}">${isWin ? '+' : ''}$${t.pnl_usd.toFixed(2)}</td>
+                        <td class="${isWin ? 'pnl-positive' : 'pnl-negative'}">${isWin ? '+' : ''}${t.pnl_pct.toFixed(2)}%</td>
+                        <td>${t.exit_reason}</td>
+                    </tr>
+                `;
+            }).join('');
+        }
+    }
+
+    // Initial run: land on the Live Bot view, defer the backtest until the
+    // Simulator tab is opened for the first time.
     loadScanner();
+    loadLiveBotState();
     setInterval(loadScanner, 30000);
+    setInterval(loadLiveBotState, 15000);
 });

@@ -1,6 +1,7 @@
 import os
 import requests
 import datetime
+import html
 
 class TelegramNotifier:
     """
@@ -58,27 +59,30 @@ class TelegramNotifier:
     def send_trade_opened(self, trade_info: dict) -> bool:
         """Notifies when a new trade is opened."""
         pos_type = trade_info.get("type", "LONG")
-        emoji_type = "🟢 LONG" if pos_type == "LONG" else "🔴 SHORT"
+        emoji_type = "🟢 LONG (Compra)" if pos_type == "LONG" else "🔴 SHORT (Venta)"
         symbol = trade_info.get("symbol", "N/A")
         entry = float(trade_info.get("entry_price", 0))
         sl = float(trade_info.get("stop_loss", 0))
         tp = float(trade_info.get("take_profit", 0))
         size_usd = float(trade_info.get("position_size_usd", 0))
-        reason = trade_info.get("reason", "Señal técnica detectada")
+        reason = html.escape(str(trade_info.get("reason", "Señal técnica detectada")))
         time_str = trade_info.get("entry_time", datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
 
         sl_pct = ((sl - entry) / entry * 100) if entry > 0 else 0
         tp_pct = ((tp - entry) / entry * 100) if entry > 0 else 0
 
+        is_testnet = os.getenv("TESTNET", "false").lower() == "true"
+        mode_badge = " [TESTNET]" if is_testnet else " [TRADING REAL]"
+
         msg = (
-            f"🚀 <b>NUEVA OPERACIÓN ABIERTA</b>\n\n"
+            f"🚀 <b>NUEVA OPERACIÓN ABIERTA</b>{mode_badge}\n\n"
             f"• <b>Símbolo:</b> <code>{symbol}</code>\n"
-            f"• <b>Tipo:</b> {emoji_type}\n"
+            f"• <b>Dirección:</b> {emoji_type}\n"
             f"• <b>Precio Entrada:</b> ${entry:,.2f}\n"
             f"• <b>Stop Loss:</b> ${sl:,.2f} ({sl_pct:+.2f}%)\n"
             f"• <b>Take Profit:</b> ${tp:,.2f} ({tp_pct:+.2f}%)\n"
-            f"• <b>Monto Operación:</b> ${size_usd:,.2f} USDT\n"
-            f"• <b>Estrategia / Razón:</b> {reason}\n"
+            f"• <b>Monto Operado:</b> ${size_usd:,.2f} USDT\n"
+            f"• <b>Estrategia / Confluencia:</b> {reason}\n"
             f"• <b>Fecha:</b> {time_str}\n"
         )
         return self.send_message(msg)
@@ -91,15 +95,18 @@ class TelegramNotifier:
         exit_p = float(trade_record.get("exit_price", 0))
         pnl_usd = float(trade_record.get("pnl_usd", 0))
         pnl_pct = float(trade_record.get("pnl_pct", 0))
-        reason = trade_record.get("exit_reason", "Cierre de posición")
+        reason = html.escape(str(trade_record.get("exit_reason", "Cierre de posición")))
         time_str = trade_record.get("exit_time", datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
 
         is_win = pnl_usd >= 0
         header_emoji = "🎯" if is_win else "🛑"
         pnl_emoji = "🟢" if is_win else "🔴"
 
+        is_testnet = os.getenv("TESTNET", "false").lower() == "true"
+        mode_badge = " (Testnet)" if is_testnet else ""
+
         msg = (
-            f"{header_emoji} <b>OPERACIÓN CERRADA - {reason}</b>\n\n"
+            f"{header_emoji} <b>OPERACIÓN CERRADA - {reason.upper()}</b>{mode_badge}\n\n"
             f"• <b>Símbolo:</b> <code>{symbol}</code> ({pos_type})\n"
             f"• <b>Precio Entrada:</b> ${entry:,.2f}\n"
             f"• <b>Precio Salida:</b> ${exit_p:,.2f}\n"
@@ -112,13 +119,14 @@ class TelegramNotifier:
 
     def send_daily_report(self, state: dict, current_price: float = None) -> bool:
         """Sends midday (12:00 PM) report with account balance and state."""
-        balance = float(state.get("account_balance", 1000.0))
+        env_capital = float(os.getenv("INITIAL_CAPITAL", 60.0))
+        initial_capital = float(state.get("initial_capital", env_capital))
+        balance = float(state.get("account_balance", initial_capital))
         completed_trades = state.get("completed_trades", [])
         active_pos = state.get("active_position")
 
-        initial_capital = 1000.0
         net_return_usd = balance - initial_capital
-        net_return_pct = (net_return_usd / initial_capital) * 100.0
+        net_return_pct = (net_return_usd / initial_capital * 100.0) if initial_capital > 0 else 0.0
 
         tot_trades = len(completed_trades)
         wins = len([t for t in completed_trades if t.get("pnl_usd", 0) > 0])
@@ -149,9 +157,11 @@ class TelegramNotifier:
             )
 
         now_str = datetime.datetime.now().strftime("%d/%m/%Y - %H:%M")
+        is_testnet = os.getenv("TESTNET", "false").lower() == "true"
+        mode_str = "Binance Testnet (Simulado)" if is_testnet else "Binance Spot (Trading Real)"
 
         msg = (
-            f"☀️ <b>REPORTE DIARIO DE MEDIODÍA (12:00 PM)</b>\n"
+            f"☀️ <b>REPORTE DIARIO DE ESTADO (12:00 PM)</b>\n"
             f"<i>{now_str}</i>\n\n"
             f"💰 <b>Balance y Capital:</b>\n"
             f"• <b>Balance Actual:</b> <b>${balance:,.2f} USDT</b>\n"
@@ -163,6 +173,6 @@ class TelegramNotifier:
             f"• <b>Win Rate:</b> {win_rate:.1f}%\n\n"
             f"📍 <b>Posición Activa:</b>\n"
             f"{pos_text}\n\n"
-            f"🤖 <b>Estado del Sistema:</b> Bot activo y funcionando en Binance Testnet."
+            f"🤖 <b>Estado del Sistema:</b> Bot activo y monitoreando operaciones en <b>{mode_str}</b>."
         )
         return self.send_message(msg)

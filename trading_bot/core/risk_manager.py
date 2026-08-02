@@ -39,8 +39,9 @@ class RiskManager:
         position_size_asset = risk_amount / sl_distance
         position_size_usd = position_size_asset * entry_price
 
-        # Never use more than 95% of available balance
-        position_size_usd = min(position_size_usd, current_balance * 0.95)
+        # Cap max exposure to 35% of total capital (or configured max_alloc) to prevent gap crash overexposure
+        max_alloc_pct = float(self.config.get("max_position_alloc_pct", 0.35))
+        position_size_usd = min(position_size_usd, current_balance * max_alloc_pct)
         position_size_asset = position_size_usd / entry_price
 
         return {

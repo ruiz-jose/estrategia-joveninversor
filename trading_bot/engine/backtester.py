@@ -18,6 +18,7 @@ class Backtester:
         self.slippage_pct = float(config.get("slippage_pct", 0.0005))
         self.max_drawdown_pct = float(config.get("max_drawdown_pct", 25.0))
         self.min_signal_strength = float(config.get("min_signal_strength", 4))
+        self.min_notional_usd = float(config.get("min_notional_usd", 10.0))
         
     def run(self, df: pd.DataFrame, indicator_warmup_df: pd.DataFrame | None = None) -> dict:
         """Run the simulation, optionally warming indicators with prior candles.
@@ -88,18 +89,14 @@ class Backtester:
                 pos_type = position["type"]
                 sl = position["stop_loss"]
                 tp = position["take_profit"]
-                sl_dist = position["sl_distance"]
-                
-                # Check Break-Even Trailing Stop adjustment
-                new_sl = self.risk_manager.update_trailing_stop(
-                    close, position["entry_price"], sl, 1 if pos_type == "LONG" else -1, sl_dist
-                )
-                position["stop_loss"] = float(new_sl)
-                sl = position["stop_loss"]
-                
+
+                # Check SL/TP against the stop as it stood entering this candle.
+                # The break-even adjustment below is computed from this candle's
+                # close, which isn't known until the candle ends, so it must not
+                # retroactively protect against this same candle's high/low.
                 exit_price = None
                 exit_reason = None
-                
+
                 if pos_type == "LONG":
                     if low <= sl:
                         exit_price = sl * (1 - self.slippage_pct)
@@ -114,7 +111,15 @@ class Backtester:
                     elif low <= tp:
                         exit_price = tp
                         exit_reason = "Take Profit"
-                        
+
+                if exit_price is None:
+                    # Not stopped/hit-target this candle: tighten the stop for
+                    # future candles using this candle's close.
+                    new_sl = self.risk_manager.update_trailing_stop(
+                        close, position["entry_price"], sl, 1 if pos_type == "LONG" else -1, position["sl_distance"]
+                    )
+                    position["stop_loss"] = float(new_sl)
+
                 # Close Trade if trigger hit
                 if exit_price is not None:
                     exit_price = float(exit_price)
@@ -146,7 +151,10 @@ class Backtester:
 
             # 2. Check for New Signal
             if not halted and position is None and signal != 0 and strength >= self.min_signal_strength:
-                fill_price = close * (1 + self.slippage_pct) if signal == 1 else close * (1 - self.slippage_pct)
+                if i + 1 >= len(df_sig):
+                    continue  # no next candle to fill on
+                next_open = float(df_sig.iloc[i + 1]["open"])
+                fill_price = next_open * (1 + self.slippage_pct) if signal == 1 else next_open * (1 - self.slippage_pct)
                 levels = self.risk_manager.calculate_trade_levels(
                     entry_price=fill_price,
                     atr=atr,
@@ -154,6 +162,12 @@ class Backtester:
                     current_balance=balance,
                     ema50=ema50
                 )
+
+                # Skip entries too small to actually place on the exchange -
+                # a position the backtest can't have really executed
+                # shouldn't count as validated evidence either.
+                if levels["position_size_usd"] < self.min_notional_usd:
+                    continue
 
                 position = {
                     "type": "LONG" if signal == 1 else "SHORT",
@@ -168,22 +182,63 @@ class Backtester:
                     "reason": reason
                 }
 
-        # Calculate Summary Metrics
-        total_trades = len(trades)
-        winning_trades = [t for t in trades if t["pnl_usd"] > 0]
-        losing_trades = [t for t in trades if t["pnl_usd"] <= 0]
-        
+        # If a position is still open when the sample ends, mark it to market
+        # at the last close instead of silently dropping its P&L from the
+        # summary (final_balance/win_rate/profit_factor previously ignored it).
+        if position is not None and len(df_sig) > 0:
+            last = df_sig.iloc[-1]
+            exit_price = float(last["close"])
+            pos_type = position["type"]
+            if pos_type == "LONG":
+                pnl_gross = (exit_price - position["entry_price"]) * position["position_size_asset"]
+            else:
+                pnl_gross = (position["entry_price"] - exit_price) * position["position_size_asset"]
+
+            fee = (position["position_size_usd"] + (position["position_size_asset"] * exit_price)) * self.fee_pct
+            pnl_net = pnl_gross - fee
+            balance += pnl_net
+
+            trades.append({
+                "id": len(trades) + 1,
+                "type": pos_type,
+                "entry_time": str(position["entry_time"]),
+                "entry_price": round(float(position["entry_price"]), 2),
+                "exit_time": str(last["timestamp"]),
+                "exit_price": round(exit_price, 2),
+                "stop_loss": round(float(position["stop_loss"]), 2),
+                "take_profit": round(float(position["take_profit"]), 2),
+                "size_usd": round(float(position["position_size_usd"]), 2),
+                "pnl_usd": round(float(pnl_net), 2),
+                "pnl_pct": round(float((pnl_net / position["position_size_usd"]) * 100.0), 2),
+                "exit_reason": "Fin del Backtest (Posición Abierta)",
+                "strength": int(position["strength"])
+            })
+            position = None
+
+        # Calculate Summary Metrics.
+        # Trades closed only because the sample ran out (exit_reason == "Fin
+        # del Backtest (Posición Abierta)") are real for equity/balance
+        # purposes (the mark-to-market above is legitimate), but they are not
+        # genuine SL/TP/strategy exits - counting them in win_rate/profit
+        # factor lets an arbitrary window cutoff manufacture "wins" or
+        # "losses" that had nothing to do with the strategy's edge.
+        realized_trades = [t for t in trades if t["exit_reason"] != "Fin del Backtest (Posición Abierta)"]
+
+        total_trades = len(realized_trades)
+        winning_trades = [t for t in realized_trades if t["pnl_usd"] > 0]
+        losing_trades = [t for t in realized_trades if t["pnl_usd"] <= 0]
+
         win_rate = (len(winning_trades) / total_trades * 100.0) if total_trades > 0 else 0.0
-        
+
         total_profit = sum([t["pnl_usd"] for t in winning_trades])
         total_loss = abs(sum([t["pnl_usd"] for t in losing_trades]))
         profit_factor = (total_profit / total_loss) if total_loss > 0 else (total_profit if total_profit > 0 else 0.0)
-        
+
         total_net_pnl = balance - initial_capital
         total_return_pct = (total_net_pnl / initial_capital) * 100.0
-        
-        if len(trades) > 1 and len(df_sig) > 1:
-            returns = [t["pnl_pct"] for t in trades]
+
+        if len(realized_trades) > 1 and len(df_sig) > 1:
+            returns = [t["pnl_pct"] for t in realized_trades]
             std_dev = float(np.std(returns))
             span_days = (pd.Timestamp(df_sig.iloc[-1]["timestamp"]) - pd.Timestamp(df_sig.iloc[0]["timestamp"])).total_seconds() / 86400.0
             trades_per_year = (total_trades / (span_days / 365.25)) if span_days > 0 else 0.0
@@ -220,6 +275,8 @@ class Backtester:
                 "losing_trades": int(len(losing_trades)),
                 "win_rate": round(float(win_rate), 2),
                 "profit_factor": round(float(profit_factor), 2),
+                "gross_profit": round(float(total_profit), 2),
+                "gross_loss": round(float(total_loss), 2),
                 "max_drawdown": round(float(max_drawdown), 2),
                 "sharpe_ratio": round(float(sharpe_ratio), 2),
                 "kill_switch_triggered": bool(halted),

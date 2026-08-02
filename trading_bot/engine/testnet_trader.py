@@ -3,6 +3,7 @@ import time
 import json
 import os
 import sys
+import threading
 
 # Add parent path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -22,6 +23,7 @@ class BinanceTestnetTrader:
     """
     
     def __init__(self, api_key: str = None, api_secret: str = None, testnet: bool = True):
+        self._file_lock = threading.Lock()
         self.testnet = testnet
         self.config = DEFAULT_CONFIG.copy()
         self.fetcher = DataFetcher()
@@ -32,6 +34,7 @@ class BinanceTestnetTrader:
         self.slippage_pct = float(self.config.get("slippage_pct", 0.0005))
         self.max_drawdown_pct = float(self.config.get("max_drawdown_pct", 25.0))
         self.min_signal_strength = float(self.config.get("min_signal_strength", 4))
+        self.min_notional_usd = float(self.config.get("min_notional_usd", 10.0))
         
         # Initialize CCXT Binance Exchange
         self.exchange = ccxt.binance({
@@ -51,32 +54,63 @@ class BinanceTestnetTrader:
             }
             
     def load_active_trades(self):
-        """Load live trades log from JSON file."""
-        if os.path.exists(self.trade_log_file):
-            try:
-                with open(self.trade_log_file, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                    data.setdefault("peak_balance", data.get("account_balance", float(self.config.get("initial_capital", 100.0))))
-                    data.setdefault("trading_halted", False)
-                    return data
-            except Exception as e:
-                print(f"Error loading trades log: {e}")
-        initial_balance = float(self.config.get("initial_capital", 100.0))
-        return {
-            "account_balance": initial_balance,
-            "peak_balance": initial_balance,
-            "trading_halted": False,
-            "active_position": None,
-            "completed_trades": []
-        }
+        """Load live trades log from JSON file and sync live Binance balance if available."""
+        with self._file_lock:
+            data = None
+            if os.path.exists(self.trade_log_file):
+                try:
+                    with open(self.trade_log_file, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                except Exception as e:
+                    print(f"Error loading trades log: {e}")
+                    
+            if not data:
+                env_cap = float(os.getenv("INITIAL_CAPITAL", self.config.get("initial_capital", 60.0)))
+                initial_balance = min(float(self.config.get("initial_capital", 60.0)), env_cap)
+
+                # Seed the paper-trading balance from the real account on first run,
+                # but never exceed the configured capital allocation.
+                api_key = os.getenv("BINANCE_API_KEY")
+                api_secret = os.getenv("BINANCE_API_SECRET")
+                testnet = os.getenv("TESTNET", "false").lower() == "true"
+                if api_key and api_secret and not testnet:
+                    try:
+                        ex = ccxt.binance({
+                            "apiKey": api_key,
+                            "secret": api_secret,
+                            "enableRateLimit": True,
+                            "options": {"defaultType": "spot"}
+                        })
+                        bal = ex.fetch_balance()
+                        total_usdt = float(bal.get("USDT", {}).get("total", 0.0))
+                        if total_usdt > 0:
+                            initial_balance = min(initial_balance, total_usdt)
+                    except Exception:
+                        pass
+
+                data = {
+                    "initial_capital": round(initial_balance, 2),
+                    "account_balance": round(initial_balance, 2),
+                    "peak_balance": round(initial_balance, 2),
+                    "trading_halted": False,
+                    "active_position": None,
+                    "completed_trades": []
+                }
+
+            data.setdefault("initial_capital", float(os.getenv("INITIAL_CAPITAL", self.config.get("initial_capital", 60.0))))
+            data.setdefault("peak_balance", data.get("account_balance", float(self.config.get("initial_capital", 60.0))))
+            data.setdefault("trading_halted", False)
+
+            return data
 
     def save_active_trades(self, data):
         """Save trades log to JSON file."""
-        try:
-            with open(self.trade_log_file, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2)
-        except Exception as e:
-            print(f"Error saving trades log: {e}")
+        with self._file_lock:
+            try:
+                with open(self.trade_log_file, "w", encoding="utf-8") as f:
+                    json.dump(data, f, indent=2)
+            except Exception as e:
+                print(f"Error saving trades log: {e}")
 
     def check_market_and_execute(self):
         """
@@ -141,14 +175,11 @@ class BinanceTestnetTrader:
             sl_dist = float(active_pos["sl_distance"])
             qty = float(active_pos["position_size_asset"])
             
-            # Check Break-Even Trailing Stop
-            new_sl = self.risk_manager.update_trailing_stop(curr_price, entry_price, sl, 1 if pos_type == "LONG" else -1, sl_dist)
-            active_pos["stop_loss"] = float(new_sl)
-            sl = new_sl
-            
+            # Check SL/TP against the stop as it stood entering this candle,
+            # before any break-even adjustment based on this candle's price.
             exit_price = None
             exit_reason = None
-            
+
             if pos_type == "LONG":
                 if candle_low <= sl:
                     exit_price = sl * (1 - self.slippage_pct)
@@ -163,7 +194,13 @@ class BinanceTestnetTrader:
                 elif candle_low <= tp:
                     exit_price = tp
                     exit_reason = "Take Profit"
-                    
+
+            if exit_price is None:
+                # Not stopped/hit-target this check: tighten the stop for the
+                # next check using the current price.
+                new_sl = self.risk_manager.update_trailing_stop(curr_price, entry_price, sl, 1 if pos_type == "LONG" else -1, sl_dist)
+                active_pos["stop_loss"] = float(new_sl)
+
             if exit_price is not None:
                 pnl_gross = (exit_price - entry_price) * qty if pos_type == "LONG" else (entry_price - exit_price) * qty
                 fee = (active_pos["position_size_usd"] + (qty * exit_price)) * 0.00075
@@ -197,7 +234,18 @@ class BinanceTestnetTrader:
         if (not trading_halted and active_pos is None and latest_candle["signal"] != 0
                 and latest_candle["signal_strength"] >= self.min_signal_strength):
             signal_type = int(latest_candle["signal"])
-            fill_price = curr_price * (1 + self.slippage_pct) if signal_type == 1 else curr_price * (1 - self.slippage_pct)
+
+            # Fill at the live market price, not the (by now stale) close of the
+            # candle that generated the signal - closer to how the backtester
+            # fills at the next candle's open instead of the signal candle's own close.
+            try:
+                ticker = self.exchange.fetch_ticker(symbol)
+                market_price = float(ticker["last"])
+            except Exception as e:
+                print(f"Error fetching live ticker for {symbol}, falling back to last close: {e}")
+                market_price = curr_price
+
+            fill_price = market_price * (1 + self.slippage_pct) if signal_type == 1 else market_price * (1 - self.slippage_pct)
             levels = self.risk_manager.calculate_trade_levels(
                 entry_price=fill_price,
                 atr=float(latest_candle["atr"]),
@@ -205,6 +253,12 @@ class BinanceTestnetTrader:
                 current_balance=balance,
                 ema50=float(latest_candle["ema_50"])
             )
+
+            # Skip entries too small to actually place on Binance.
+            if levels["position_size_usd"] < self.min_notional_usd:
+                print(f"Signal skipped: position size ${levels['position_size_usd']:.2f} below min notional ${self.min_notional_usd:.2f}")
+                self.save_active_trades(data)
+                return data
 
             new_pos = {
                 "type": "LONG" if signal_type == 1 else "SHORT",
@@ -222,7 +276,7 @@ class BinanceTestnetTrader:
             
             data["active_position"] = new_pos
             self.save_active_trades(data)
-            print(f"OPENED NEW POSITION {'LONG' if signal_type == 1 else 'SHORT'} @ ${curr_price:,.2f} | SL: ${levels['stop_loss']:,.2f} | TP: ${levels['take_profit']:,.2f}")
+            print(f"OPENED NEW POSITION {'LONG' if signal_type == 1 else 'SHORT'} @ ${fill_price:,.2f} | SL: ${levels['stop_loss']:,.2f} | TP: ${levels['take_profit']:,.2f}")
             
             # Send Telegram Notification on Trade Open
             self.notifier.send_trade_opened(new_pos)
@@ -244,6 +298,64 @@ class BinanceTestnetTrader:
             print(f"Error fetching price for daily report: {e}")
             
         return self.notifier.send_daily_report(data, current_price=curr_price)
+
+    def get_real_binance_account_info(self):
+        """Fetches real balance and open orders directly from Binance API if API keys are provided."""
+        api_key = os.getenv("BINANCE_API_KEY")
+        api_secret = os.getenv("BINANCE_API_SECRET")
+        testnet = os.getenv("TESTNET", "true").lower() == "true"
+        
+        if not api_key or not api_secret:
+            return {"connected": False, "reason": "No hay API Keys configuradas en .env"}
+            
+        try:
+            ex = ccxt.binance({
+                "apiKey": api_key,
+                "secret": api_secret,
+                "enableRateLimit": True,
+                "options": {"defaultType": "spot", "fetchBalance": {"type": "spot"}}
+            })
+            if testnet:
+                try:
+                    ex.set_sandbox_mode(True)
+                except Exception:
+                    ex.urls["api"] = {
+                        "public": "https://testnet.binance.vision/api",
+                        "private": "https://testnet.binance.vision/api",
+                    }
+            
+            balance_info = ex.fetch_balance()
+            free_usdt = balance_info.get("USDT", {}).get("free", 0.0)
+            total_usdt = balance_info.get("USDT", {}).get("total", 0.0)
+            
+            symbol = self.config.get("symbol", "SOL/USDT")
+            open_orders = []
+            try:
+                raw_orders = ex.fetch_open_orders(symbol)
+                for o in raw_orders:
+                    open_orders.append({
+                        "id": o.get("id"),
+                        "symbol": o.get("symbol"),
+                        "type": o.get("type"),
+                        "side": o.get("side"),
+                        "price": o.get("price"),
+                        "amount": o.get("amount")
+                    })
+            except Exception as oe:
+                print(f"Error fetching open orders: {oe}")
+            
+            active_assets = {k: v for k, v in balance_info.get("total", {}).items() if v and v > 0}
+            
+            return {
+                "connected": True,
+                "testnet": testnet,
+                "free_usdt": round(free_usdt, 2),
+                "total_usdt": round(total_usdt, 2),
+                "open_orders": open_orders,
+                "active_assets": active_assets
+            }
+        except Exception as e:
+            return {"connected": False, "error": str(e)}
 
 if __name__ == "__main__":
     trader = BinanceTestnetTrader()

@@ -103,6 +103,14 @@ def trigger_daily_report():
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
+@app.route("/api/binance/account", methods=["GET"])
+def get_binance_account():
+    try:
+        info = testnet_trader.get_real_binance_account_info()
+        return jsonify({"status": "success", "account": info})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
 def start_midday_scheduler():
     """Daemon thread that checks for 12:00 PM local time every 30s and sends Telegram status report."""
     import threading
@@ -129,8 +137,29 @@ def start_midday_scheduler():
     t = threading.Thread(target=scheduler_loop, daemon=True)
     t.start()
 
+def start_market_check_scheduler(interval_sec: int = 3600):
+    """Daemon thread that runs the trading engine's market check on a fixed interval."""
+    import threading
+    import datetime
+    import time
+
+    def scheduler_loop():
+        print(f"[Scheduler] Market Check Scheduler initialized (every {interval_sec}s)...")
+        while True:
+            try:
+                now = datetime.datetime.now()
+                print(f"[{now.strftime('%H:%M:%S')}] Running scheduled market check...")
+                testnet_trader.check_market_and_execute()
+            except Exception as e:
+                print(f"[Scheduler Error]: {e}")
+            time.sleep(interval_sec)
+
+    t = threading.Thread(target=scheduler_loop, daemon=True)
+    t.start()
+
 if __name__ == "__main__":
     start_midday_scheduler()
+    start_market_check_scheduler(interval_sec=3600)
     port = int(os.environ.get("PORT", 5000))
     print(f"Starting Trading Bot Server on http://localhost:{port} ...")
     app.run(host="0.0.0.0", port=port, debug=False)

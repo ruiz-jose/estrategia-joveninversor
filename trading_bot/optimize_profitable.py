@@ -50,7 +50,21 @@ def grid_search(train_df, base_config):
     return best
 
 
-def run_walk_forward(symbol, timeframe, limit=1500, n_folds=3, train_ratio=0.7):
+def run_walk_forward(symbol, timeframe, limit=1500, n_folds=3, train_ratio=0.7, reoptimize=True):
+    """Run the walk-forward split and backtest each fold's out-of-sample segment.
+
+    ``reoptimize=True`` (this module's own parameter-search use case) grid-searches
+    PARAM_GRID on each fold's train segment and evaluates the best in-sample combo
+    out-of-sample - useful to explore which parameters generalize, but it means the
+    OOS numbers validate a different config per fold, never the fixed config.py that
+    actually runs in production.
+
+    ``reoptimize=False`` skips the grid search entirely and evaluates the fixed
+    DEFAULT_CONFIG (config.py) parameters on every fold, so the OOS numbers certify
+    the exact configuration that would be deployed. Use this for robustness/reliability
+    verdicts (see robustness_report.py); reserve reoptimize=True for parameter
+    exploration only.
+    """
     df = fetcher.fetch_ohlcv(symbol, timeframe, limit=limit)
     base_config = DEFAULT_CONFIG.copy()
     base_config["symbol"] = symbol
@@ -61,16 +75,22 @@ def run_walk_forward(symbol, timeframe, limit=1500, n_folds=3, train_ratio=0.7):
         if len(train_df) < 100 or len(test_df) < 30:
             continue
 
-        best = grid_search(train_df, base_config)
-        if best is None:
-            print(f"  Fold {fold_idx}: ninguna combinación alcanzó el mínimo de {MIN_TRADES_FOR_SELECTION} trades in-sample, se omite.")
-            continue
+        if reoptimize:
+            best = grid_search(train_df, base_config)
+            if best is None:
+                print(f"  Fold {fold_idx}: ninguna combinación alcanzó el mínimo de {MIN_TRADES_FOR_SELECTION} trades in-sample, se omite.")
+                continue
+            fold_config = best["config"]
+            in_sample_summary = best["summary"]
+        else:
+            fold_config = base_config
+            in_sample_summary = Backtester(fold_config).run(train_df)["summary"]
 
-        test_summary = Backtester(best["config"]).run(test_df, indicator_warmup_df=test_warmup_df)["summary"]
+        test_summary = Backtester(fold_config).run(test_df, indicator_warmup_df=test_warmup_df)["summary"]
         fold_results.append({
             "fold": fold_idx,
-            "params": {k: best["config"][k] for k in PARAM_GRID},
-            "in_sample": best["summary"],
+            "params": {k: fold_config[k] for k in PARAM_GRID},
+            "in_sample": in_sample_summary,
             "out_of_sample": test_summary,
         })
 

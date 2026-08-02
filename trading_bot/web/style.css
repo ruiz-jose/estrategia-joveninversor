@@ -129,6 +129,17 @@ body {
     font-weight: 600;
 }
 
+.status-badge.halted {
+    background: rgba(239, 68, 68, 0.12);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    color: var(--danger);
+}
+
+.status-badge.halted .pulse-dot {
+    background-color: var(--danger);
+    box-shadow: 0 0 8px var(--danger);
+}
+
 .pulse-dot {
     width: 8px;
     height: 8px;
@@ -149,6 +160,36 @@ body {
     color: var(--text-muted);
 }
 
+/* Main Nav */
+.main-nav {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 20px;
+}
+
+.nav-tab {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(11, 14, 20, 0.6);
+    border: 1px solid var(--border-color);
+    color: var(--text-muted);
+    padding: 10px 18px;
+    border-radius: 10px;
+    font-family: var(--font-main);
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.nav-tab.active,
+.nav-tab:hover {
+    background: var(--primary);
+    color: #fff;
+    border-color: var(--primary);
+}
+
 /* Dashboard Grid Layout */
 .dashboard-grid {
     display: grid;
@@ -160,6 +201,29 @@ body {
     .dashboard-grid {
         grid-template-columns: 1fr;
     }
+}
+
+/* Live Bot View Layout */
+.live-grid {
+    display: grid;
+    grid-template-columns: 1fr 320px;
+    gap: 20px;
+}
+
+@media (max-width: 1100px) {
+    .live-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+.live-main {
+    min-width: 0;
+}
+
+.live-side {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
 }
 
 /* Sidebar */
@@ -326,6 +390,41 @@ body {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
     gap: 16px;
+}
+
+.live-stats-row {
+    grid-template-columns: repeat(2, 1fr);
+    margin: 16px 0;
+}
+
+.live-position-box {
+    margin-bottom: 16px;
+}
+
+.live-position-card {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 14px 16px;
+    background: rgba(22, 28, 38, 0.8);
+    border-radius: 10px;
+    border-left: 3px solid var(--success);
+}
+
+.live-position-card.short {
+    border-left-color: var(--danger);
+}
+
+.live-position-details {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 13px;
+    color: var(--text-muted);
+}
+
+.live-position-details strong {
+    color: var(--text-main);
 }
 
 @media (max-width: 900px) {

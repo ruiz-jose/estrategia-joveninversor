@@ -27,7 +27,7 @@
                     <p>Modelo Cuantitativo Rentable (Supertrend + EMA200 Macro Trend + 1:2.5 R/R)</p>
                 </div>
             </div>
-            
+
             <div class="header-status">
                 <div class="status-badge live">
                     <span class="pulse-dot"></span>
@@ -37,15 +37,97 @@
             </div>
         </header>
 
-        <!-- Main Grid Layout -->
-        <main class="dashboard-grid">
-            
+        <!-- Main Nav: Live Bot (default) vs Simulator -->
+        <nav class="main-nav">
+            <button class="nav-tab active" id="navBtnLive">
+                <i class="fa-solid fa-satellite-dish"></i> Bot en Vivo
+            </button>
+            <button class="nav-tab" id="navBtnSimulator">
+                <i class="fa-solid fa-flask"></i> Simulador / Backtest
+            </button>
+        </nav>
+
+        <!-- LIVE BOT VIEW (default screen) -->
+        <main class="view-panel live-grid" id="viewLive">
+
+            <!-- Live Bot Status (main column) -->
+            <section class="live-main">
+                <div class="table-container glass-panel">
+                    <div class="table-header">
+                        <h2><i class="fa-solid fa-satellite-dish"></i> Bot en Vivo — Estado Actual</h2>
+                        <span class="status-badge live" id="liveBotStatusBadge">
+                            <span class="pulse-dot"></span>
+                            <span id="liveBotStatusText">Activo</span>
+                        </span>
+                    </div>
+
+                    <div class="stats-row live-stats-row">
+                        <div class="stat-card glass-panel">
+                            <div class="stat-icon profit"><i class="fa-solid fa-wallet"></i></div>
+                            <div class="stat-info">
+                                <span class="stat-label">Balance Actual</span>
+                                <h3 id="liveBalance">$60.00</h3>
+                                <span class="stat-sub" id="livePeak">Pico: $60.00</span>
+                            </div>
+                        </div>
+                        <div class="stat-card glass-panel">
+                            <div class="stat-icon winrate"><i class="fa-solid fa-list-check"></i></div>
+                            <div class="stat-info">
+                                <span class="stat-label">Trades Cerrados</span>
+                                <h3 id="liveTradesCount">0</h3>
+                                <span class="stat-sub" id="liveNetPnl">PnL Total: $0.00</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="live-position-box" id="livePositionBox">
+                        <span class="empty-state">Sin posición abierta</span>
+                    </div>
+
+                    <div class="table-wrapper">
+                        <table class="data-table" id="liveTradesTable">
+                            <thead>
+                                <tr>
+                                    <th>#</th>
+                                    <th>Tipo</th>
+                                    <th>Entrada</th>
+                                    <th>Precio Entrada</th>
+                                    <th>Precio Salida</th>
+                                    <th>Resultado ($)</th>
+                                    <th>Retorno (%)</th>
+                                    <th>Causa Salida</th>
+                                </tr>
+                            </thead>
+                            <tbody id="liveTradesTableBody">
+                                <tr>
+                                    <td colspan="8" class="empty-state">Sin operaciones cerradas todavía.</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Real-time Scanner (side column) -->
+            <aside class="live-side">
+                <div class="scanner-box glass-panel">
+                    <h3><i class="fa-solid fa-radar"></i> Escáner Multiactivo</h3>
+                    <div class="scanner-list" id="scannerList">
+                        <div class="scanner-item loading">Cargando señales...</div>
+                    </div>
+                </div>
+            </aside>
+        </main>
+
+        <!-- SIMULATOR / BACKTEST VIEW (hidden until selected) -->
+        <main class="view-panel dashboard-grid hidden" id="viewSimulator">
+
             <!-- Left Sidebar: Controls & Parameters -->
             <aside class="sidebar-card glass-panel">
                 <div class="card-header">
                     <h2><i class="fa-solid fa-sliders"></i> Configuración de Estrategia</h2>
                 </div>
-                
+
                 <form id="configForm">
                     <div class="form-group">
                         <label for="symbol">Activo / Par</label>
@@ -111,19 +193,11 @@
                         <i class="fa-solid fa-play"></i> Ejecutar Modelo Rentable
                     </button>
                 </form>
-
-                <!-- Real-time Scanner Card -->
-                <div class="scanner-box">
-                    <h3><i class="fa-solid fa-radar"></i> Escáner Multiactivo</h3>
-                    <div class="scanner-list" id="scannerList">
-                        <div class="scanner-item loading">Cargando señales...</div>
-                    </div>
-                </div>
             </aside>
 
             <!-- Center & Right: Dashboard Content -->
             <section class="main-content">
-                
+
                 <!-- Stat Cards Row -->
                 <div class="stats-row">
                     <div class="stat-card glass-panel">
@@ -177,13 +251,13 @@
                             <button class="btn-toggle" id="btnTabEquity">Curva de Capital</button>
                         </div>
                     </div>
-                    
+
                     <div id="tvChartContainer" class="chart-body-wrapper">
                         <div id="tvMainChart" class="tv-subchart main"></div>
                         <div id="tvRsiChart" class="tv-subchart indicator"></div>
                         <div id="tvMacdChart" class="tv-subchart indicator"></div>
                     </div>
-                    
+
                     <div id="equityChartContainer" class="chart-body-wrapper hidden">
                         <div id="tvEquityChart" class="tv-subchart full"></div>
                     </div>
