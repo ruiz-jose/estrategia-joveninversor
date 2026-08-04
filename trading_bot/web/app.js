@@ -371,9 +371,11 @@ document.addEventListener("DOMContentLoaded", () => {
         netPnlEl.className = `stat-sub ${totalPnl >= 0 ? '' : 'negative'}`;
 
         const posBox = document.getElementById("livePositionBox");
-        const pos = state.active_position;
-        if (pos) {
-            posBox.innerHTML = `
+        const positions = state.active_positions
+            ? Object.values(state.active_positions)
+            : (state.active_position ? [state.active_position] : []);
+        if (positions.length > 0) {
+            posBox.innerHTML = positions.map(pos => `
                 <div class="live-position-card ${pos.type.toLowerCase()}">
                     <span class="trade-badge ${pos.type.toLowerCase()}">${pos.type}</span>
                     <div class="live-position-details">
@@ -382,7 +384,7 @@ document.addEventListener("DOMContentLoaded", () => {
                         <span>Tamaño: $${pos.position_size_usd.toFixed(2)} · Fuerza señal: ${pos.strength} · ${pos.reason}</span>
                     </div>
                 </div>
-            `;
+            `).join('');
         } else {
             posBox.innerHTML = `<span class="empty-state">Sin posición abierta</span>`;
         }

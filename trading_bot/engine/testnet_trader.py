@@ -137,13 +137,22 @@ class BinanceTestnetTrader:
                     "account_balance": round(initial_balance, 2),
                     "peak_balance": round(initial_balance, 2),
                     "trading_halted": False,
-                    "active_position": None,
+                    "active_positions": {},
                     "completed_trades": []
                 }
 
             data.setdefault("initial_capital", float(os.getenv("INITIAL_CAPITAL", self.config.get("initial_capital", 60.0))))
             data.setdefault("peak_balance", data.get("account_balance", float(self.config.get("initial_capital", 60.0))))
             data.setdefault("trading_halted", False)
+
+            # Migrate legacy single-position schema ({"active_position": {...} | None})
+            # to the multi-symbol dict keyed by symbol.
+            if "active_position" in data:
+                legacy_pos = data.pop("active_position")
+                active_positions = data.setdefault("active_positions", {})
+                if legacy_pos:
+                    active_positions[legacy_pos["symbol"]] = legacy_pos
+            data.setdefault("active_positions", {})
 
             return data
 
@@ -158,43 +167,50 @@ class BinanceTestnetTrader:
 
     def check_market_and_execute(self):
         """
-        Main execution loop step:
-        1. Download latest candles for configured symbol & timeframe.
+        Main execution loop step, run once per configured symbol:
+        1. Download latest candles for each symbol & the configured timeframe.
         2. Calculate indicators & signals.
-        3. Check active position (SL / TP / Trailing Stop).
-        4. Execute new signal if no active position.
+        3. Check each symbol's active position (SL / TP / Trailing Stop).
+        4. Execute a new signal per symbol if that symbol has no active position.
+
+        All symbols share a single account balance/equity curve, so the
+        drawdown kill-switch is evaluated once per call across every open
+        position before any symbol's entries/exits are processed.
         """
-        symbol = self.config.get("symbol", "SOL/USDT")
-        timeframe = self.config.get("timeframe", "1d")
-        
-        # 1. Fetch OHLCV data
-        df = self.fetcher.fetch_ohlcv(symbol, timeframe, limit=300)
-        df_ind = add_all_indicators(df, self.config)
-        df_sig = self.strategy.generate_signals(df_ind)
-        
-        latest_candle = df_sig.iloc[-1]
-        curr_price = float(latest_candle["close"])
-        candle_high = float(latest_candle["high"])
-        candle_low = float(latest_candle["low"])
-        timestamp = str(latest_candle["timestamp"])
-        
+        symbols = self.config.get("symbols") or [self.config.get("symbol", "BTC/USDT")]
+        timeframe = self.config.get("timeframe", "4h")
+
         data = self.load_active_trades()
         balance = float(data.get("account_balance", 1000.0))
         peak_balance = float(data.get("peak_balance", balance))
         trading_halted = bool(data.get("trading_halted", False))
-        active_pos = data.get("active_position")
+        active_positions = data.get("active_positions", {})
 
-        print(f"[{timestamp}] Checking {symbol} ({timeframe}) - Current Price: ${curr_price:,.2f} | Balance: ${balance:,.2f}")
+        # 1. Fetch OHLCV data & signals for every symbol up front, so the
+        # drawdown/kill-switch check below sees this tick's price for every
+        # open position before any symbol's entry/exit logic runs.
+        latest_by_symbol = {}
+        for symbol in symbols:
+            try:
+                df = self.fetcher.fetch_ohlcv(symbol, timeframe, limit=300)
+                df_ind = add_all_indicators(df, self.config)
+                df_sig = self.strategy.generate_signals(df_ind)
+                latest_by_symbol[symbol] = df_sig.iloc[-1]
+            except Exception as e:
+                print(f"Error fetching/processing {symbol}: {e}")
 
-        # Drawdown kill-switch: track peak equity and halt new entries once exceeded
+        # Drawdown kill-switch: track peak equity (balance + floating PnL of
+        # every open position) and halt new entries once exceeded.
         current_equity = balance
-        if active_pos is not None:
+        for symbol, active_pos in active_positions.items():
+            latest_candle = latest_by_symbol.get(symbol)
+            price = float(latest_candle["close"]) if latest_candle is not None else float(active_pos["entry_price"])
             entry_price = float(active_pos["entry_price"])
             qty = float(active_pos["position_size_asset"])
             if active_pos["type"] == "LONG":
-                current_equity += (curr_price - entry_price) * qty
+                current_equity += (price - entry_price) * qty
             else:
-                current_equity += (entry_price - curr_price) * qty
+                current_equity += (entry_price - price) * qty
 
         if current_equity > peak_balance:
             peak_balance = current_equity
@@ -209,6 +225,27 @@ class BinanceTestnetTrader:
 
         data["peak_balance"] = round(float(peak_balance), 2)
         data["trading_halted"] = trading_halted
+
+        # 2-4. Process each symbol's position management & entry signal in turn,
+        # re-reading `balance` after every close/open so later symbols in the
+        # loop size new trades off the up-to-date shared balance.
+        for symbol, latest_candle in latest_by_symbol.items():
+            balance = float(data.get("account_balance", balance))
+            active_pos = active_positions.get(symbol)
+            self._process_symbol(symbol, timeframe, latest_candle, data, active_positions, active_pos, balance, trading_halted)
+
+        data["active_positions"] = active_positions
+        self.save_active_trades(data)
+        return data
+
+    def _process_symbol(self, symbol, timeframe, latest_candle, data, active_positions, active_pos, balance, trading_halted):
+        """Position management (SL/TP) and new-entry logic for a single symbol."""
+        curr_price = float(latest_candle["close"])
+        candle_high = float(latest_candle["high"])
+        candle_low = float(latest_candle["low"])
+        timestamp = str(latest_candle["timestamp"])
+
+        print(f"[{timestamp}] Checking {symbol} ({timeframe}) - Current Price: ${curr_price:,.2f} | Balance: ${balance:,.2f}")
 
         # 2. Check Active Position
         if active_pos is not None:
@@ -259,8 +296,7 @@ class BinanceTestnetTrader:
                             f"⚠️ <b>Error cerrando posicion REAL</b>\n{pos_type} {symbol} deberia cerrar por {exit_reason} pero la orden fallo: {e}\nRevisa manualmente en Binance."
                         )
                         # Keep the position open locally so the next check retries the close.
-                        self.save_active_trades(data)
-                        return data
+                        return
 
                 pnl_gross = (exit_price - entry_price) * qty if pos_type == "LONG" else (entry_price - exit_price) * qty
                 fee = (active_pos["position_size_usd"] + (qty * exit_price)) * 0.00075
@@ -283,13 +319,12 @@ class BinanceTestnetTrader:
                 
                 data["completed_trades"].append(trade_record)
                 data["account_balance"] = round(new_balance, 2)
-                data["active_position"] = None
-                self.save_active_trades(data)
-                print(f"CLOSED POSITION {pos_type} @ ${exit_price:,.2f} | Reason: {exit_reason} | PnL: ${net_pnl:+.2f}")
-                
+                active_positions.pop(symbol, None)
+                print(f"CLOSED POSITION {pos_type} {symbol} @ ${exit_price:,.2f} | Reason: {exit_reason} | PnL: ${net_pnl:+.2f}")
+
                 # Send Telegram Notification on Trade Close
                 self.notifier.send_trade_closed(trade_record, round(new_balance, 2))
-                return data
+                return
 
         # 3. Check for New Entry Signal
         if (not trading_halted and active_pos is None and latest_candle["signal"] != 0
@@ -318,8 +353,7 @@ class BinanceTestnetTrader:
             # Skip entries too small to actually place on Binance.
             if levels["position_size_usd"] < self.min_notional_usd:
                 print(f"Signal skipped: position size ${levels['position_size_usd']:.2f} below min notional ${self.min_notional_usd:.2f}")
-                self.save_active_trades(data)
-                return data
+                return
 
             # A Spot account cannot short-sell an asset it doesn't hold. Real order
             # placement is LONG-only; SHORT signals are logged/notified and skipped
@@ -330,8 +364,7 @@ class BinanceTestnetTrader:
                 self.notifier.send_message(
                     f"ℹ️ Señal SHORT detectada en {symbol} (fuerza {int(latest_candle['signal_strength'])}) pero se ignora: cuenta Spot no permite abrir cortos reales."
                 )
-                self.save_active_trades(data)
-                return data
+                return
 
             qty = levels["position_size_asset"]
             is_live_order = False
@@ -355,8 +388,7 @@ class BinanceTestnetTrader:
                 except Exception as e:
                     print(f"[LiveTrading] Error colocando orden real de compra en {symbol}: {e}")
                     self.notifier.send_message(f"⚠️ Error al abrir orden real BUY {symbol}: {e}")
-                    self.save_active_trades(data)
-                    return data
+                    return
 
             new_pos = {
                 "type": "LONG" if signal_type == 1 else "SHORT",
@@ -373,30 +405,26 @@ class BinanceTestnetTrader:
                 "live": is_live_order,
             }
 
-            data["active_position"] = new_pos
-            self.save_active_trades(data)
-            print(f"OPENED NEW POSITION {'LONG' if signal_type == 1 else 'SHORT'} @ ${fill_price:,.2f} | SL: ${levels['stop_loss']:,.2f} | TP: ${levels['take_profit']:,.2f}")
-            
+            active_positions[symbol] = new_pos
+            print(f"OPENED NEW POSITION {'LONG' if signal_type == 1 else 'SHORT'} {symbol} @ ${fill_price:,.2f} | SL: ${levels['stop_loss']:,.2f} | TP: ${levels['take_profit']:,.2f}")
+
             # Send Telegram Notification on Trade Open
             self.notifier.send_trade_opened(new_pos)
-
-        # Persist peak_balance / trading_halted even when no position was opened or closed this tick
-        self.save_active_trades(data)
-        return data
 
     def send_midday_report(self):
         """Sends midday (12:00 PM) status report to Telegram."""
         data = self.load_active_trades()
-        symbol = self.config.get("symbol", "SOL/USDT")
-        curr_price = None
-        try:
-            df = self.fetcher.fetch_ohlcv(symbol, "1d", limit=2)
-            if not df.empty:
-                curr_price = float(df.iloc[-1]["close"])
-        except Exception as e:
-            print(f"Error fetching price for daily report: {e}")
-            
-        return self.notifier.send_daily_report(data, current_price=curr_price)
+        symbols = self.config.get("symbols") or [self.config.get("symbol", "BTC/USDT")]
+        current_prices = {}
+        for symbol in symbols:
+            try:
+                df = self.fetcher.fetch_ohlcv(symbol, "1d", limit=2)
+                if not df.empty:
+                    current_prices[symbol] = float(df.iloc[-1]["close"])
+            except Exception as e:
+                print(f"Error fetching price for daily report ({symbol}): {e}")
+
+        return self.notifier.send_daily_report(data, current_prices=current_prices)
 
     def get_real_binance_account_info(self):
         """Fetches real balance and open orders directly from Binance API if API keys are provided."""
@@ -427,21 +455,22 @@ class BinanceTestnetTrader:
             free_usdt = balance_info.get("USDT", {}).get("free", 0.0)
             total_usdt = balance_info.get("USDT", {}).get("total", 0.0)
             
-            symbol = self.config.get("symbol", "SOL/USDT")
+            symbols = self.config.get("symbols") or [self.config.get("symbol", "BTC/USDT")]
             open_orders = []
-            try:
-                raw_orders = ex.fetch_open_orders(symbol)
-                for o in raw_orders:
-                    open_orders.append({
-                        "id": o.get("id"),
-                        "symbol": o.get("symbol"),
-                        "type": o.get("type"),
-                        "side": o.get("side"),
-                        "price": o.get("price"),
-                        "amount": o.get("amount")
-                    })
-            except Exception as oe:
-                print(f"Error fetching open orders: {oe}")
+            for symbol in symbols:
+                try:
+                    raw_orders = ex.fetch_open_orders(symbol)
+                    for o in raw_orders:
+                        open_orders.append({
+                            "id": o.get("id"),
+                            "symbol": o.get("symbol"),
+                            "type": o.get("type"),
+                            "side": o.get("side"),
+                            "price": o.get("price"),
+                            "amount": o.get("amount")
+                        })
+                except Exception as oe:
+                    print(f"Error fetching open orders for {symbol}: {oe}")
             
             active_assets = {k: v for k, v in balance_info.get("total", {}).items() if v and v > 0}
             

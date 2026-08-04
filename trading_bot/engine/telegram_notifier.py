@@ -117,13 +117,22 @@ class TelegramNotifier:
         )
         return self.send_message(msg)
 
-    def send_daily_report(self, state: dict, current_price: float = None) -> bool:
-        """Sends midday (12:00 PM) report with account balance and state."""
+    def send_daily_report(self, state: dict, current_price: float = None, current_prices: dict = None) -> bool:
+        """Sends midday (12:00 PM) report with account balance and state.
+
+        `current_prices` maps symbol -> latest price, used to compute floating
+        PnL per open position. `current_price` (single value) is kept as a
+        fallback for callers that only track one symbol.
+        """
         env_capital = float(os.getenv("INITIAL_CAPITAL", 60.0))
         initial_capital = float(state.get("initial_capital", env_capital))
         balance = float(state.get("account_balance", initial_capital))
         completed_trades = state.get("completed_trades", [])
-        active_pos = state.get("active_position")
+        active_positions = state.get("active_positions") or {}
+        if not active_positions and state.get("active_position"):
+            legacy_pos = state["active_position"]
+            active_positions = {legacy_pos.get("symbol", "N/A"): legacy_pos}
+        current_prices = current_prices or {}
 
         net_return_usd = balance - initial_capital
         net_return_pct = (net_return_usd / initial_capital * 100.0) if initial_capital > 0 else 0.0
@@ -136,25 +145,28 @@ class TelegramNotifier:
         pnl_emoji = "📈" if net_return_usd >= 0 else "📉"
 
         pos_text = "<i>Sin posiciones abiertas en este momento.</i>"
-        if active_pos:
-            a_type = active_pos.get("type", "LONG")
-            a_sym = active_pos.get("symbol", "N/A")
-            a_entry = float(active_pos.get("entry_price", 0))
-            a_sl = float(active_pos.get("stop_loss", 0))
-            a_tp = float(active_pos.get("take_profit", 0))
+        if active_positions:
+            blocks = []
+            for a_sym, active_pos in active_positions.items():
+                a_type = active_pos.get("type", "LONG")
+                a_entry = float(active_pos.get("entry_price", 0))
+                a_sl = float(active_pos.get("stop_loss", 0))
+                a_tp = float(active_pos.get("take_profit", 0))
 
-            floating_pnl_str = ""
-            if current_price and a_entry > 0:
-                qty = float(active_pos.get("position_size_asset", 0))
-                float_pnl = (current_price - a_entry) * qty if a_type == "LONG" else (a_entry - current_price) * qty
-                floating_pnl_str = f"\n  └ <b>PnL Flotante:</b> ${float_pnl:+,.2f} USDT"
+                price_for_symbol = current_prices.get(a_sym, current_price)
+                floating_pnl_str = ""
+                if price_for_symbol and a_entry > 0:
+                    qty = float(active_pos.get("position_size_asset", 0))
+                    float_pnl = (price_for_symbol - a_entry) * qty if a_type == "LONG" else (a_entry - price_for_symbol) * qty
+                    floating_pnl_str = f"\n  └ <b>PnL Flotante:</b> ${float_pnl:+,.2f} USDT"
 
-            pos_text = (
-                f"• <b>{a_sym} ({a_type})</b>\n"
-                f"  └ <b>Entrada:</b> ${a_entry:,.2f}\n"
-                f"  └ <b>Stop Loss:</b> ${a_sl:,.2f} | <b>Take Profit:</b> ${a_tp:,.2f}"
-                f"{floating_pnl_str}"
-            )
+                blocks.append(
+                    f"• <b>{a_sym} ({a_type})</b>\n"
+                    f"  └ <b>Entrada:</b> ${a_entry:,.2f}\n"
+                    f"  └ <b>Stop Loss:</b> ${a_sl:,.2f} | <b>Take Profit:</b> ${a_tp:,.2f}"
+                    f"{floating_pnl_str}"
+                )
+            pos_text = "\n\n".join(blocks)
 
         now_str = datetime.datetime.now().strftime("%d/%m/%Y - %H:%M")
         is_testnet = os.getenv("TESTNET", "false").lower() == "true"

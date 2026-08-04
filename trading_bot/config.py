@@ -4,7 +4,8 @@ Configuration parameters for the Trading Bot (Quant Profitable Strategy)
 
 DEFAULT_CONFIG = {
     # Market & Exchange
-    "symbol": "BTC/USDT",
+    "symbol": "BTC/USDT",       # Used by single-symbol tools (backtester, scanner, etc.)
+    "symbols": ["BTC/USDT", "ETH/USDT", "SOL/USDT", "BNB/USDT"],  # Pairs traded by the live/testnet trader
     "timeframe": "4h",       # Options: 5m, 15m, 1h, 4h, 1d
     "initial_capital": 60.0, # Initial balance in USDT (Spot)
     
