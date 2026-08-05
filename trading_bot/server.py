@@ -8,12 +8,16 @@ from config import DEFAULT_CONFIG
 from engine.data_fetcher import DataFetcher
 from engine.backtester import Backtester
 from engine.testnet_trader import BinanceTestnetTrader
+from engine.futures_trader import BinanceFuturesTrader
+from engine.telegram_notifier import TelegramNotifier
 from core.indicators import add_all_indicators
 from core.strategy import Strategy
 
 app = Flask(__name__, static_folder="web", static_url_path="")
 fetcher = DataFetcher()
-testnet_trader = BinanceTestnetTrader()
+TelegramNotifier()  # loads .env into os.environ as a side effect, before MARKET_TYPE is read below
+MARKET_TYPE = os.getenv("MARKET_TYPE", "spot").lower()
+testnet_trader = BinanceFuturesTrader() if MARKET_TYPE == "futures" else BinanceTestnetTrader()
 
 @app.route("/")
 def index():

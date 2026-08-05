@@ -6,12 +6,12 @@ DEFAULT_CONFIG = {
     # Market & Exchange
     "symbol": "BTC/USDT",       # Used by single-symbol tools (backtester, scanner, etc.)
     # Walk-forward OOS evidence (robustness_report.py, 5 folds, ~5.5y of 4h candles):
-    # ETH and SOL came back CONFIABLE (PF 1.35/1.39, 4/5 folds profitable), BTC only
-    # MARGINAL (PF 1.06), BNB came back NO CONFIABLE (PF 0.55, 0/5 folds profitable)
-    # and was dropped. Re-check this list whenever robustness_report.py is re-run.
-    "symbols": ["ETH/USDT", "SOL/USDT", "BTC/USDT"],  # Pairs traded by the live/testnet trader
+    # ETH, SOL, ADA, DOGE came back CONFIABLE (PF 1.35-1.64, >=3/5 folds profitable);
+    # BTC only MARGINAL (PF 1.06); BNB and XRP came back NO CONFIABLE (PF 0.55/0.74)
+    # and were dropped. Re-check this list whenever robustness_report.py is re-run.
+    "symbols": ["ETH/USDT", "SOL/USDT", "BTC/USDT", "ADA/USDT", "DOGE/USDT"],  # Pairs traded by the live/testnet trader
     "timeframe": "4h",       # Options: 5m, 15m, 1h, 4h, 1d
-    "initial_capital": 60.0, # Initial balance in USDT (Spot)
+    "initial_capital": 100.0, # Initial balance in USDT (Binance Futures Testnet)
     
     # Strategy Indicator Parameters
     "ema_fast": 20,          # EMA 20

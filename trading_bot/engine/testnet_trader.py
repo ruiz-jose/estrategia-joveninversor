@@ -34,9 +34,10 @@ class BinanceTestnetTrader:
         self.risk_manager = RiskManager(self.config)
         self.notifier = TelegramNotifier()  # also loads .env into os.environ as a side effect
 
-        self.testnet = testnet if testnet is not None else (os.getenv("TESTNET", "true").lower() == "true")
-        api_key = api_key or os.getenv("BINANCE_API_KEY")
-        api_secret = api_secret or os.getenv("BINANCE_API_SECRET")
+        resolved_key, resolved_secret, resolved_testnet = self._resolve_credentials()
+        self.testnet = testnet if testnet is not None else resolved_testnet
+        api_key = api_key or resolved_key
+        api_secret = api_secret or resolved_secret
 
         self.trade_log_file = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "live_testnet_trades.json")
         self.slippage_pct = float(self.config.get("slippage_pct", 0.0005))
@@ -44,10 +45,37 @@ class BinanceTestnetTrader:
         self.min_signal_strength = float(self.config.get("min_signal_strength", 4))
         self.min_notional_usd = float(self.config.get("min_notional_usd", 10.0))
 
-        # Initialize CCXT Binance Exchange
+        self._init_exchange(api_key or "", api_secret or "")
+
+        # Real order placement requires valid, correctly-scoped credentials (Testnet
+        # keys only work against testnet.binance.vision; real-account keys only
+        # work against the live API - they are never interchangeable).
+        self.live_trading_enabled = bool(api_key and api_secret)
+        if self.live_trading_enabled:
+            try:
+                self.exchange.load_markets()
+                self.exchange.fetch_balance()  # validates the API key/secret actually authenticate here
+                print(f"[LiveTrading] Ordenes reales HABILITADAS en {'Binance Testnet' if self.testnet else 'Binance REAL'} para {self.config.get('symbol')}.")
+            except Exception as e:
+                print(f"[LiveTrading] No se pudo autenticar contra Binance ({'Testnet' if self.testnet else 'Real'}): {e}. Se desactivan las ordenes reales, cae a simulacion local.")
+                self.live_trading_enabled = False
+
+    def _resolve_credentials(self):
+        """Returns (api_key, api_secret, testnet_bool) from the environment. Spot Binance keys/flag.
+
+        Subclasses override this to source credentials for a different market (e.g. Futures).
+        """
+        return (
+            os.getenv("BINANCE_API_KEY"),
+            os.getenv("BINANCE_API_SECRET"),
+            os.getenv("TESTNET", "true").lower() == "true",
+        )
+
+    def _init_exchange(self, api_key: str, api_secret: str):
+        """Builds self.exchange for Spot trading. Subclasses override for other market types."""
         self.exchange = ccxt.binance({
-            "apiKey": api_key or "",
-            "secret": api_secret or "",
+            "apiKey": api_key,
+            "secret": api_secret,
             "enableRateLimit": True,
             "options": {
                 "defaultType": "spot",
@@ -64,18 +92,19 @@ class BinanceTestnetTrader:
                     "private": "https://testnet.binance.vision/api",
                 }
 
-        # Real order placement requires valid, correctly-scoped credentials (Testnet
-        # keys only work against testnet.binance.vision; real-account keys only
-        # work against the live API - they are never interchangeable).
-        self.live_trading_enabled = bool(api_key and api_secret)
-        if self.live_trading_enabled:
-            try:
-                self.exchange.load_markets()
-                self.exchange.fetch_balance()  # validates the API key/secret actually authenticate here
-                print(f"[LiveTrading] Ordenes reales HABILITADAS en {'Binance Testnet' if self.testnet else 'Binance REAL'} para {self.config.get('symbol')}.")
-            except Exception as e:
-                print(f"[LiveTrading] No se pudo autenticar contra Binance ({'Testnet' if self.testnet else 'Real'}): {e}. Se desactivan las ordenes reales, cae a simulacion local.")
-                self.live_trading_enabled = False
+    def _direction_tradable(self, symbol: str, signal_type: int) -> bool:
+        """Whether a real order can be placed for this signal direction on this symbol.
+
+        Spot accounts cannot short-sell an asset they don't hold, so only LONG (1) is
+        tradable here. Subclasses (e.g. Futures) override to also allow SHORT (-1).
+        """
+        return signal_type == 1
+
+    def _open_side(self, signal_type: int) -> str:
+        return "buy" if signal_type == 1 else "sell"
+
+    def _close_side(self, position_type: str) -> str:
+        return "sell" if position_type == "LONG" else "buy"
 
     def _place_market_order(self, symbol: str, side: str, amount: float):
         """
@@ -285,8 +314,7 @@ class BinanceTestnetTrader:
             if exit_price is not None:
                 if active_pos.get("live") and self.live_trading_enabled:
                     try:
-                        # LONG-only: SHORT positions are never opened as real orders (see entry logic).
-                        filled_qty, avg_price = self._place_market_order(symbol, "sell", qty)
+                        filled_qty, avg_price = self._place_market_order(symbol, self._close_side(pos_type), qty)
                         if avg_price:
                             exit_price = avg_price
                         print(f"[LiveTrading] Orden REAL de venta ejecutada: {filled_qty} {symbol} @ ${exit_price:,.2f} ({exit_reason})")
@@ -299,7 +327,7 @@ class BinanceTestnetTrader:
                         return
 
                 pnl_gross = (exit_price - entry_price) * qty if pos_type == "LONG" else (entry_price - exit_price) * qty
-                fee = (active_pos["position_size_usd"] + (qty * exit_price)) * 0.00075
+                fee = (active_pos["position_size_usd"] + (qty * exit_price)) * self.config.get("fee_pct", 0.00075)
                 net_pnl = pnl_gross - fee
                 new_balance = balance + net_pnl
                 
@@ -355,11 +383,11 @@ class BinanceTestnetTrader:
                 print(f"Signal skipped: position size ${levels['position_size_usd']:.2f} below min notional ${self.min_notional_usd:.2f}")
                 return
 
-            # A Spot account cannot short-sell an asset it doesn't hold. Real order
-            # placement is LONG-only; SHORT signals are logged/notified and skipped
-            # rather than silently faked, so the local state never claims a real
-            # position that doesn't exist on the exchange.
-            if signal_type == -1 and self.live_trading_enabled:
+            # Real order placement is only attempted for directions the account/market
+            # actually supports (e.g. a Spot account can't short-sell). Untradable
+            # directions are logged/notified and skipped rather than silently faked,
+            # so the local state never claims a real position that doesn't exist.
+            if signal_type == -1 and self.live_trading_enabled and not self._direction_tradable(symbol, signal_type):
                 print(f"Signal SHORT ignorado en {symbol}: cuenta Spot no admite venta en corto (requiere Margin/Futures).")
                 self.notifier.send_message(
                     f"ℹ️ Señal SHORT detectada en {symbol} (fuerza {int(latest_candle['signal_strength'])}) pero se ignora: cuenta Spot no permite abrir cortos reales."
@@ -369,9 +397,10 @@ class BinanceTestnetTrader:
             qty = levels["position_size_asset"]
             is_live_order = False
 
-            if signal_type == 1 and self.live_trading_enabled:
+            if self.live_trading_enabled and self._direction_tradable(symbol, signal_type):
+                side = self._open_side(signal_type)
                 try:
-                    filled_qty, avg_price = self._place_market_order(symbol, "buy", qty)
+                    filled_qty, avg_price = self._place_market_order(symbol, side, qty)
                     if avg_price:
                         # Shift SL/TP by the same absolute distance the real fill
                         # deviated from the pre-trade estimate, preserving the
@@ -384,10 +413,10 @@ class BinanceTestnetTrader:
                         qty = filled_qty
                     levels["position_size_usd"] = qty * fill_price
                     is_live_order = True
-                    print(f"[LiveTrading] Orden REAL de compra ejecutada: {qty} {symbol} @ ${fill_price:,.2f} ({'Testnet' if self.testnet else 'REAL'})")
+                    print(f"[LiveTrading] Orden REAL de {side} ejecutada: {qty} {symbol} @ ${fill_price:,.2f} ({'Testnet' if self.testnet else 'REAL'})")
                 except Exception as e:
-                    print(f"[LiveTrading] Error colocando orden real de compra en {symbol}: {e}")
-                    self.notifier.send_message(f"⚠️ Error al abrir orden real BUY {symbol}: {e}")
+                    print(f"[LiveTrading] Error colocando orden real de {side} en {symbol}: {e}")
+                    self.notifier.send_message(f"⚠️ Error al abrir orden real {side.upper()} {symbol}: {e}")
                     return
 
             new_pos = {
