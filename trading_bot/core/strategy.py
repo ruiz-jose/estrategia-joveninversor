@@ -112,6 +112,9 @@ class Strategy:
                 reasons[i]   = " LONG: " + " | ".join(rl)
                 continue
 
+            if not self.config.get("allow_short", True):
+                continue
+
             # ── SHORT patterns ───────────────────────────────────────────────
             score = 0
             rl = []
