@@ -116,7 +116,7 @@ class BinanceTestnetTrader:
                 # but never exceed the configured capital allocation.
                 api_key = os.getenv("BINANCE_API_KEY")
                 api_secret = os.getenv("BINANCE_API_SECRET")
-                testnet = os.getenv("TESTNET", "false").lower() == "true"
+                testnet = os.getenv("TESTNET", "true").lower() == "true"
                 if api_key and api_secret and not testnet:
                     try:
                         ex = ccxt.binance({

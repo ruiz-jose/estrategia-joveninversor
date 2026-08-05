@@ -71,7 +71,7 @@ class TelegramNotifier:
         sl_pct = ((sl - entry) / entry * 100) if entry > 0 else 0
         tp_pct = ((tp - entry) / entry * 100) if entry > 0 else 0
 
-        is_testnet = os.getenv("TESTNET", "false").lower() == "true"
+        is_testnet = os.getenv("TESTNET", "true").lower() == "true"
         mode_badge = " [TESTNET]" if is_testnet else " [TRADING REAL]"
 
         msg = (
@@ -102,7 +102,7 @@ class TelegramNotifier:
         header_emoji = "🎯" if is_win else "🛑"
         pnl_emoji = "🟢" if is_win else "🔴"
 
-        is_testnet = os.getenv("TESTNET", "false").lower() == "true"
+        is_testnet = os.getenv("TESTNET", "true").lower() == "true"
         mode_badge = " (Testnet)" if is_testnet else ""
 
         msg = (
@@ -169,7 +169,7 @@ class TelegramNotifier:
             pos_text = "\n\n".join(blocks)
 
         now_str = datetime.datetime.now().strftime("%d/%m/%Y - %H:%M")
-        is_testnet = os.getenv("TESTNET", "false").lower() == "true"
+        is_testnet = os.getenv("TESTNET", "true").lower() == "true"
         mode_str = "Binance Testnet (Simulado)" if is_testnet else "Binance Spot (Trading Real)"
 
         msg = (

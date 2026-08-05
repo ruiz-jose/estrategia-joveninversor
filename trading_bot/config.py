@@ -5,7 +5,11 @@ Configuration parameters for the Trading Bot (Quant Profitable Strategy)
 DEFAULT_CONFIG = {
     # Market & Exchange
     "symbol": "BTC/USDT",       # Used by single-symbol tools (backtester, scanner, etc.)
-    "symbols": ["BTC/USDT", "ETH/USDT", "SOL/USDT", "BNB/USDT"],  # Pairs traded by the live/testnet trader
+    # Walk-forward OOS evidence (robustness_report.py, 5 folds, ~5.5y of 4h candles):
+    # ETH and SOL came back CONFIABLE (PF 1.35/1.39, 4/5 folds profitable), BTC only
+    # MARGINAL (PF 1.06), BNB came back NO CONFIABLE (PF 0.55, 0/5 folds profitable)
+    # and was dropped. Re-check this list whenever robustness_report.py is re-run.
+    "symbols": ["ETH/USDT", "SOL/USDT", "BTC/USDT"],  # Pairs traded by the live/testnet trader
     "timeframe": "4h",       # Options: 5m, 15m, 1h, 4h, 1d
     "initial_capital": 60.0, # Initial balance in USDT (Spot)
     
@@ -32,10 +36,12 @@ DEFAULT_CONFIG = {
     "rsi_short_max": 60,
     "di_min_separation": 2.0,       # +DI must exceed -DI by this many points to confirm direction
     "pullback_ema50_band": 0.018,   # price within ±1.8% of EMA50 triggers Pattern C
-    "min_signal_strength": 4,       # all 3 patterns start at score=4; extras push to 5-7
+    "min_signal_strength": 5,       # all 3 patterns start at score=4 (base confluence); 5 requires
+                                     # at least 1 bonus confirmation, so this actually filters signals
 
     # Risk Management Parameters
-    "risk_per_trade_pct": 1.0, # Risk 1% of total capital per trade (protects 100 USDT base)
+    "risk_per_trade_pct": 2.0, # Risk 2% of total capital per trade; with a small account (e.g. 60
+                               # USDT) 1% risks <$1, which frequently sizes below min_notional_usd
     "risk_reward_ratio": 2.5,  # 1:2.5 Risk to Reward Ratio
     "atr_period": 14,
     "atr_sl_multiplier": 2.0,  # Dynamic SL multiplier
