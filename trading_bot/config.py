@@ -37,7 +37,7 @@ DEFAULT_CONFIG = {
                                      # at least 1 bonus confirmation, so this actually filters signals
 
     # Risk Management Parameters
-    "risk_per_trade_pct": 2.0, # Risk 2% of total capital per trade
+    "risk_per_trade_pct": 3.5, # Perfil más agresivo: arriesgar 3.5% del capital por trade
     "risk_reward_ratio": 3.0,  # 1:3.0 Risk to Reward Ratio (Maximiza Profit Factor a 2.51)
     "atr_period": 14,
     "atr_sl_multiplier": 2.0,  # Dynamic SL multiplier
