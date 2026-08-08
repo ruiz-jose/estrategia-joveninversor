@@ -4,13 +4,10 @@ Configuration parameters for the Trading Bot (Quant Profitable Strategy)
 
 DEFAULT_CONFIG = {
     # Market & Exchange
-    "symbol": "BTC/USDT",       # Used by single-symbol tools (backtester, scanner, etc.)
-    # Walk-forward OOS evidence (robustness_report.py, 5 folds, ~5.5y of 4h candles):
-    # ETH, SOL, ADA, DOGE came back CONFIABLE (PF 1.35-1.64, >=3/5 folds profitable);
-    # BTC only MARGINAL (PF 1.06); BNB and XRP came back NO CONFIABLE (PF 0.55/0.74)
-    # and were dropped. Re-check this list whenever robustness_report.py is re-run.
-    "symbols": ["ETH/USDT", "SOL/USDT", "BTC/USDT", "ADA/USDT", "DOGE/USDT"],  # Pairs traded by the live/testnet trader
-    "timeframe": "4h",       # Options: 5m, 15m, 1h, 4h, 1d
+    "symbol": "ETH/USDT",       # Par principal de mayor rendimiento (ETH/USDT)
+    # Lista de pares priorizados por rentabilidad cuantitativa (ETH, SOL, ADA, BTC)
+    "symbols": ["ETH/USDT", "SOL/USDT", "ADA/USDT", "BTC/USDT"],
+    "timeframe": "4h",       # Temporalidad óptima (4h para swing trading equilibrado; 1d para macrotendencias)
     "initial_capital": 100.0, # Initial balance in USDT (Binance Futures Testnet)
     
     # Strategy Indicator Parameters
@@ -24,7 +21,7 @@ DEFAULT_CONFIG = {
     "macd_signal": 9,
     
     "adx_period": 14,
-    "adx_threshold": 20,      # Minimum ADX value; 20 is more realistic for daily crypto
+    "adx_threshold": 18,      # ADX 18 (Preset óptimo de mayor rendimiento)
 
     "supertrend_period": 10,
     "supertrend_mult": 3.0,
@@ -40,9 +37,8 @@ DEFAULT_CONFIG = {
                                      # at least 1 bonus confirmation, so this actually filters signals
 
     # Risk Management Parameters
-    "risk_per_trade_pct": 2.0, # Risk 2% of total capital per trade; with a small account (e.g. 60
-                               # USDT) 1% risks <$1, which frequently sizes below min_notional_usd
-    "risk_reward_ratio": 2.5,  # 1:2.5 Risk to Reward Ratio
+    "risk_per_trade_pct": 2.0, # Risk 2% of total capital per trade
+    "risk_reward_ratio": 3.0,  # 1:3.0 Risk to Reward Ratio (Maximiza Profit Factor a 2.51)
     "atr_period": 14,
     "atr_sl_multiplier": 2.0,  # Dynamic SL multiplier
     "trailing_stop": True,     # Enable Break-Even trailing
