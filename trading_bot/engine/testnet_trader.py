@@ -100,6 +100,10 @@ class BinanceTestnetTrader:
         """
         return signal_type == 1
 
+    def _env_label(self) -> str:
+        """Helper returning clear description of current execution environment."""
+        return "Binance TESTNET (Virtual)" if self.testnet else "Binance REAL (Dinero Real)"
+
     def _open_side(self, signal_type: int) -> str:
         return "buy" if signal_type == 1 else "sell"
 
@@ -247,9 +251,10 @@ class BinanceTestnetTrader:
 
         if not trading_halted and drawdown_pct >= self.max_drawdown_pct:
             trading_halted = True
-            print(f"[KILL-SWITCH] Drawdown {drawdown_pct:.2f}% >= {self.max_drawdown_pct:.2f}% - pausing new entries.")
+            env_lbl = self._env_label()
+            print(f"[KILL-SWITCH] Drawdown {drawdown_pct:.2f}% >= {self.max_drawdown_pct:.2f}% - pausing new entries ({env_lbl}).")
             self.notifier.send_message(
-                f"🛑 <b>KILL-SWITCH ACTIVADO</b>\n\nDrawdown actual: {drawdown_pct:.2f}% (límite {self.max_drawdown_pct:.2f}%).\nSe pausa la apertura de nuevas operaciones hasta revisión manual."
+                f"🛑 <b>KILL-SWITCH ACTIVADO [{env_lbl}]</b>\n\nDrawdown actual: {drawdown_pct:.2f}% (límite {self.max_drawdown_pct:.2f}%).\nSe pausa la apertura de nuevas operaciones hasta revisión manual."
             )
 
         data["peak_balance"] = round(float(peak_balance), 2)
@@ -313,15 +318,16 @@ class BinanceTestnetTrader:
 
             if exit_price is not None:
                 if active_pos.get("live") and self.live_trading_enabled:
+                    env_lbl = self._env_label()
                     try:
                         filled_qty, avg_price = self._place_market_order(symbol, self._close_side(pos_type), qty)
                         if avg_price:
                             exit_price = avg_price
-                        print(f"[LiveTrading] Orden REAL de venta ejecutada: {filled_qty} {symbol} @ ${exit_price:,.2f} ({exit_reason})")
+                        print(f"[LiveTrading] Orden de venta ejecutada ({env_lbl}): {filled_qty} {symbol} @ ${exit_price:,.2f} ({exit_reason})")
                     except Exception as e:
-                        print(f"[LiveTrading] Error al cerrar posicion real {pos_type} {symbol}: {e}")
+                        print(f"[LiveTrading] Error al cerrar posicion {pos_type} {symbol} ({env_lbl}): {e}")
                         self.notifier.send_message(
-                            f"⚠️ <b>Error cerrando posicion REAL</b>\n{pos_type} {symbol} deberia cerrar por {exit_reason} pero la orden fallo: {e}\nRevisa manualmente en Binance."
+                            f"⚠️ <b>Error cerrando posición en [{env_lbl}]</b>\n{pos_type} {symbol} debería cerrar por {exit_reason} pero la orden falló: {e}\nRevisa manualmente en Binance."
                         )
                         # Keep the position open locally so the next check retries the close.
                         return
@@ -388,9 +394,10 @@ class BinanceTestnetTrader:
             # directions are logged/notified and skipped rather than silently faked,
             # so the local state never claims a real position that doesn't exist.
             if signal_type == -1 and self.live_trading_enabled and not self._direction_tradable(symbol, signal_type):
-                print(f"Signal SHORT ignorado en {symbol}: cuenta Spot no admite venta en corto (requiere Margin/Futures).")
+                env_lbl = self._env_label()
+                print(f"Signal SHORT ignorado en {symbol}: cuenta Spot no admite venta en corto ({env_lbl}).")
                 self.notifier.send_message(
-                    f"ℹ️ Señal SHORT detectada en {symbol} (fuerza {int(latest_candle['signal_strength'])}) pero se ignora: cuenta Spot no permite abrir cortos reales."
+                    f"ℹ️ Señal SHORT detectada en {symbol} (fuerza {int(latest_candle['signal_strength'])}) pero se ignora en [{env_lbl}]: cuenta Spot no permite abrir cortos reales."
                 )
                 return
 
@@ -399,6 +406,7 @@ class BinanceTestnetTrader:
 
             if self.live_trading_enabled and self._direction_tradable(symbol, signal_type):
                 side = self._open_side(signal_type)
+                env_lbl = self._env_label()
                 try:
                     filled_qty, avg_price = self._place_market_order(symbol, side, qty)
                     if avg_price:
@@ -413,10 +421,10 @@ class BinanceTestnetTrader:
                         qty = filled_qty
                     levels["position_size_usd"] = qty * fill_price
                     is_live_order = True
-                    print(f"[LiveTrading] Orden REAL de {side} ejecutada: {qty} {symbol} @ ${fill_price:,.2f} ({'Testnet' if self.testnet else 'REAL'})")
+                    print(f"[LiveTrading] Orden de {side} ejecutada en [{env_lbl}]: {qty} {symbol} @ ${fill_price:,.2f}")
                 except Exception as e:
-                    print(f"[LiveTrading] Error colocando orden real de {side} en {symbol}: {e}")
-                    self.notifier.send_message(f"⚠️ Error al abrir orden real {side.upper()} {symbol}: {e}")
+                    print(f"[LiveTrading] Error colocando orden de {side} en {symbol} [{env_lbl}]: {e}")
+                    self.notifier.send_message(f"⚠️ Error al abrir orden en [{env_lbl}] {side.upper()} {symbol}: {e}")
                     return
 
             new_pos = {

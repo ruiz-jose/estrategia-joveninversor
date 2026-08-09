@@ -71,8 +71,28 @@ class TelegramNotifier:
         sl_pct = ((sl - entry) / entry * 100) if entry > 0 else 0
         tp_pct = ((tp - entry) / entry * 100) if entry > 0 else 0
 
-        is_testnet = os.getenv("TESTNET", "true").lower() == "true"
-        mode_badge = " [TESTNET]" if is_testnet else " [TRADING REAL]"
+    def _is_testnet(self) -> bool:
+        return (
+            os.getenv("TESTNET", "true").lower() == "true" or
+            os.getenv("FUTURES_TESTNET", "true").lower() == "true"
+        )
+
+    def send_trade_opened(self, trade_info: dict) -> bool:
+        """Notifies when a new trade is opened."""
+        pos_type = trade_info.get("type", "LONG")
+        emoji_type = "🟢 LONG (Compra)" if pos_type == "LONG" else "🔴 SHORT (Venta)"
+        symbol = trade_info.get("symbol", "N/A")
+        entry = float(trade_info.get("entry_price", 0))
+        sl = float(trade_info.get("stop_loss", 0))
+        tp = float(trade_info.get("take_profit", 0))
+        size_usd = float(trade_info.get("position_size_usd", 0))
+        reason = html.escape(str(trade_info.get("reason", "Señal técnica detectada")))
+        time_str = trade_info.get("entry_time", datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+
+        sl_pct = ((sl - entry) / entry * 100) if entry > 0 else 0
+        tp_pct = ((tp - entry) / entry * 100) if entry > 0 else 0
+
+        mode_badge = " 🧪 [BINANCE TESTNET - VIRTUAL]" if self._is_testnet() else " 💵 [BINANCE REAL]"
 
         msg = (
             f"🚀 <b>NUEVA OPERACIÓN ABIERTA</b>{mode_badge}\n\n"
@@ -102,8 +122,7 @@ class TelegramNotifier:
         header_emoji = "🎯" if is_win else "🛑"
         pnl_emoji = "🟢" if is_win else "🔴"
 
-        is_testnet = os.getenv("TESTNET", "true").lower() == "true"
-        mode_badge = " (Testnet)" if is_testnet else ""
+        mode_badge = " 🧪 (Binance Testnet Virtual)" if self._is_testnet() else " 💵 (Binance Real)"
 
         msg = (
             f"{header_emoji} <b>OPERACIÓN CERRADA - {reason.upper()}</b>{mode_badge}\n\n"

@@ -70,10 +70,9 @@ class BinanceFuturesTrader(BinanceTestnetTrader):
         # lower than Spot's 0.075% - reflect that in the live PnL bookkeeping.
         self.config["fee_pct"] = 0.0008
 
-        # Binance USD-M Futures enforces a $20 minimum order notional (confirmed via
-        # error -4164 on a live testnet order), higher than Spot's ~$10 - never trade
-        # below it even if config.py's min_notional_usd (tuned for Spot) is lower.
-        self.min_notional_usd = max(self.min_notional_usd, 20.0)
+        # Binance USD-M Futures enforces a $50 minimum order notional (confirmed via
+        # error -4164 on live orders) - never trade below it.
+        self.min_notional_usd = max(self.min_notional_usd, 50.0)
 
     @staticmethod
     def _normalize_symbol(symbol: str) -> str:

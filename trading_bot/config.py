@@ -44,7 +44,7 @@ DEFAULT_CONFIG = {
     "trailing_stop": True,     # Enable Break-Even trailing
     "slippage_pct": 0.0005,    # 0.05% adverse slippage on entries and stop-loss fills
     "max_drawdown_pct": 25.0,  # Halt new entries once drawdown from peak equity exceeds this
-    "min_notional_usd": 10.0,  # Skip entries sized below Binance's typical minimum order value
+    "min_notional_usd": 50.0,  # Skip entries sized below Binance's typical minimum order value ($50 USDT)
 
     # Paper Trading / Live Monitoring
     "update_interval_sec": 60,
