@@ -44,7 +44,13 @@ DEFAULT_CONFIG = {
     "trailing_stop": True,     # Enable Break-Even trailing
     "slippage_pct": 0.0005,    # 0.05% adverse slippage on entries and stop-loss fills
     "max_drawdown_pct": 25.0,  # Halt new entries once drawdown from peak equity exceeds this
-    "min_notional_usd": 50.0,  # Skip entries sized below Binance's typical minimum order value ($50 USDT)
+    # With ~100 USDT capital, Binance's $50 minimum notional forces large position
+    # sizing regardless of risk_per_trade_pct: max_position_alloc_pct must clear it
+    # with room to spare, and min_notional_usd needs a buffer above the real $50 floor
+    # so borderline sizes are skipped locally instead of bouncing off Binance at
+    # execution time (price drift + lot-size rounding can shave a few USD off the estimate).
+    "max_position_alloc_pct": 0.60, # Allow up to 60% of capital per trade (was defaulting to 35%, which caps at $35 < $50 min)
+    "min_notional_usd": 55.0,  # Binance's real minimum is $50; skip below $55 to leave a rounding/slippage buffer
 
     # Paper Trading / Live Monitoring
     "update_interval_sec": 60,
