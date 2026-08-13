@@ -287,7 +287,7 @@ document.addEventListener("DOMContentLoaded", () => {
         document.getElementById("tradesTableCount").textContent = `${trades.length} Operaciones`;
 
         if (!trades || trades.length === 0) {
-            tbody.innerHTML = `<tr><td colspan="10" class="empty-state">No se generaron operaciones en el período analizado.</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="11" class="empty-state">No se generaron operaciones en el período analizado.</td></tr>`;
             return;
         }
 
@@ -296,6 +296,7 @@ document.addEventListener("DOMContentLoaded", () => {
             return `
                 <tr>
                     <td>#${t.id}</td>
+                    <td>${t.symbol || 'N/A'}</td>
                     <td><span class="trade-badge ${t.type.toLowerCase()}">${t.type}</span></td>
                     <td>${t.entry_time.split(" ")[1] || t.entry_time}</td>
                     <td>$${t.entry_price.toLocaleString()}</td>
@@ -391,13 +392,14 @@ document.addEventListener("DOMContentLoaded", () => {
 
         const tbody = document.getElementById("liveTradesTableBody");
         if (trades.length === 0) {
-            tbody.innerHTML = `<tr><td colspan="8" class="empty-state">Sin operaciones cerradas todavía.</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="9" class="empty-state">Sin operaciones cerradas todavía.</td></tr>`;
         } else {
             tbody.innerHTML = trades.slice().reverse().map(t => {
                 const isWin = t.pnl_usd >= 0;
                 return `
                     <tr>
                         <td>#${t.id}</td>
+                        <td>${t.symbol || 'N/A'}</td>
                         <td><span class="trade-badge ${t.type.toLowerCase()}">${t.type}</span></td>
                         <td>${t.entry_time}</td>
                         <td>$${t.entry_price.toLocaleString()}</td>

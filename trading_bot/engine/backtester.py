@@ -134,6 +134,7 @@ class Backtester:
                     
                     trades.append({
                         "id": len(trades) + 1,
+                        "symbol": self.config.get("symbol", "N/A"),
                         "type": pos_type,
                         "entry_time": str(position["entry_time"]),
                         "entry_price": round(float(position["entry_price"]), 2),
@@ -200,6 +201,7 @@ class Backtester:
 
             trades.append({
                 "id": len(trades) + 1,
+                "symbol": self.config.get("symbol", "N/A"),
                 "type": pos_type,
                 "entry_time": str(position["entry_time"]),
                 "entry_price": round(float(position["entry_price"]), 2),

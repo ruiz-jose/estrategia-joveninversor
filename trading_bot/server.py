@@ -17,7 +17,9 @@ app = Flask(__name__, static_folder="web", static_url_path="")
 fetcher = DataFetcher()
 TelegramNotifier()  # loads .env into os.environ as a side effect, before MARKET_TYPE is read below
 MARKET_TYPE = os.getenv("MARKET_TYPE", "spot").lower()
+LEVERAGE = int(os.getenv("LEVERAGE", 2))
 testnet_trader = BinanceFuturesTrader() if MARKET_TYPE == "futures" else BinanceTestnetTrader()
+print(f"[Startup] MARKET_TYPE={MARKET_TYPE} | LEVERAGE={LEVERAGE} | Trader={testnet_trader.__class__.__name__}")
 
 @app.route("/")
 def index():
@@ -112,6 +114,24 @@ def get_binance_account():
     try:
         info = testnet_trader.get_real_binance_account_info()
         return jsonify({"status": "success", "account": info})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route("/api/debug", methods=["GET"])
+def debug_info():
+    try:
+        info = {
+            "market_type": MARKET_TYPE,
+            "leverage": LEVERAGE,
+            "trader_class": testnet_trader.__class__.__name__,
+            "has_spot_keys": bool(os.getenv("BINANCE_API_KEY") and os.getenv("BINANCE_API_SECRET")),
+            "has_futures_keys": bool(os.getenv("BINANCE_FUTURES_API_KEY") and os.getenv("BINANCE_FUTURES_API_SECRET")),
+            "trader_live_trading_enabled": getattr(testnet_trader, "live_trading_enabled", False),
+        }
+        if hasattr(testnet_trader, "short_enabled_symbols"):
+            info["short_enabled_symbols"] = list(getattr(testnet_trader, "short_enabled_symbols"))
+        return jsonify({"status": "success", "debug": info})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 

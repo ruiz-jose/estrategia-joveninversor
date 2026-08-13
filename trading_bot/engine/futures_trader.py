@@ -61,10 +61,22 @@ class BinanceFuturesTrader(BinanceTestnetTrader):
             except Exception as e:
                 print(f"[FuturesTrader] No se pudo fijar leverage {leverage}x en {symbol}: {e}")
 
-        raw_short_symbols = os.getenv("SHORT_ENABLED_SYMBOLS", "ETHUSDT,SOLUSDT")
-        self.short_enabled_symbols = {
-            self._normalize_symbol(s) for s in raw_short_symbols.split(",") if s.strip()
-        }
+        raw_short_symbols = os.getenv("SHORT_ENABLED_SYMBOLS", "")
+        if raw_short_symbols.strip():
+            self.short_enabled_symbols = {
+                self._normalize_symbol(s) for s in raw_short_symbols.split(",") if s.strip()
+            }
+        else:
+            # By default, allow SHORT on all symbols configured for the futures bot.
+            self.short_enabled_symbols = {
+                self._normalize_symbol(s) for s in symbols
+            }
+
+        # Debug log: show which symbols are allowed for SHORT on this trader
+        try:
+            print(f"[FuturesTrader] short_enabled_symbols = {sorted(self.short_enabled_symbols)}")
+        except Exception:
+            pass
 
         # Futures USD-M taker fee (~0.04% per side, both sides of a round trip) is
         # lower than Spot's 0.075% - reflect that in the live PnL bookkeeping.
