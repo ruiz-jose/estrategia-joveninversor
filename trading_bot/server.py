@@ -59,16 +59,29 @@ def run_backtest():
         traceback.print_exc()
         return jsonify({"status": "error", "message": str(e)}), 500
 
+def _environment_info():
+    """Describes which real-world environment the live bot is actually wired to,
+    so the dashboard can show it explicitly instead of the user having to infer
+    it from log lines or guess based on a static label."""
+    return {
+        "market_type": MARKET_TYPE,
+        "testnet": bool(getattr(testnet_trader, "testnet", True)),
+        "live_trading_enabled": bool(getattr(testnet_trader, "live_trading_enabled", False)),
+        "leverage": LEVERAGE if MARKET_TYPE == "futures" else None,
+        "symbols": testnet_trader.config.get("symbols") or [testnet_trader.config.get("symbol")],
+        "timeframe": testnet_trader.config.get("timeframe"),
+    }
+
 @app.route("/api/testnet", methods=["GET", "POST"])
 def manage_testnet():
     try:
         if request.method == "POST":
             # Trigger Testnet execution check
             state = testnet_trader.check_market_and_execute()
-            return jsonify({"status": "success", "state": state})
+            return jsonify({"status": "success", "state": state, "environment": _environment_info()})
         else:
             state = testnet_trader.load_active_trades()
-            return jsonify({"status": "success", "state": state})
+            return jsonify({"status": "success", "state": state, "environment": _environment_info()})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 

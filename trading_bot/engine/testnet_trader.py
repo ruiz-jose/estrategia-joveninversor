@@ -110,6 +110,13 @@ class BinanceTestnetTrader:
         """
         return signal_type == 1
 
+    def _short_untradable_reason(self, symbol: str) -> str:
+        """Human-readable reason a SHORT signal isn't tradable here, used in logs
+        and Telegram notifications. Base (Spot) reason; subclasses (e.g. Futures)
+        override for their own reason so the message never blames the wrong
+        account type."""
+        return "cuenta Spot no permite abrir cortos reales"
+
     def _env_label(self) -> str:
         """Helper returning clear description of current execution environment."""
         return "Binance TESTNET (Virtual)" if self.testnet else "Binance REAL (Dinero Real)"
@@ -504,14 +511,16 @@ class BinanceTestnetTrader:
                 return
 
             # Real order placement is only attempted for directions the account/market
-            # actually supports (e.g. a Spot account can't short-sell). Untradable
-            # directions are logged/notified and skipped rather than silently faked,
-            # so the local state never claims a real position that doesn't exist.
+            # actually supports (e.g. a Spot account can't short-sell, or a Futures
+            # symbol isn't in SHORT_ENABLED_SYMBOLS). Untradable directions are
+            # logged/notified and skipped rather than silently faked, so the local
+            # state never claims a real position that doesn't exist.
             if signal_type == -1 and self.live_trading_enabled and not self._direction_tradable(symbol, signal_type):
                 env_lbl = self._env_label()
-                print(f"Signal SHORT ignorado en {symbol}: cuenta Spot no admite venta en corto ({env_lbl}).")
+                reason = self._short_untradable_reason(symbol)
+                print(f"Signal SHORT ignorado en {symbol}: {reason} ({env_lbl}).")
                 self.notifier.send_message(
-                    f"ℹ️ Señal SHORT detectada en {symbol} (fuerza {int(latest_candle['signal_strength'])}) pero se ignora en [{env_lbl}]: cuenta Spot no permite abrir cortos reales."
+                    f"ℹ️ Señal SHORT detectada en {symbol} (fuerza {int(latest_candle['signal_strength'])}) pero se ignora en [{env_lbl}]: {reason}."
                 )
                 return
 

@@ -29,9 +29,9 @@
             </div>
 
             <div class="header-status">
-                <div class="status-badge live">
+                <div class="status-badge env-badge" id="envBadge">
                     <span class="pulse-dot"></span>
-                    <span>Paper Trading Activo</span>
+                    <span id="envBadgeText">Consultando entorno...</span>
                 </div>
                 <div class="last-sync" id="lastSync">Sincronizado: --:--:--</div>
             </div>
@@ -80,10 +80,18 @@
                         </div>
                     </div>
 
+                    <div class="live-section-header">
+                        <h3><i class="fa-solid fa-arrow-right-arrow-left"></i> Posición Abierta Ahora</h3>
+                        <span class="section-hint">La operación sigue corriendo, todavía no cerró — por eso no aparece en el historial de abajo.</span>
+                    </div>
                     <div class="live-position-box" id="livePositionBox">
-                        <span class="empty-state">Sin posición abierta</span>
+                        <div class="empty-state-card">Sin posición abierta en este momento.</div>
                     </div>
 
+                    <div class="live-section-header">
+                        <h3><i class="fa-solid fa-clock-rotate-left"></i> Historial de Operaciones Cerradas</h3>
+                        <span class="section-hint">Solo operaciones que ya terminaron (tocaron Stop Loss, Take Profit, u otro cierre).</span>
+                    </div>
                     <div class="table-wrapper">
                         <table class="data-table" id="liveTradesTable">
                             <thead>
@@ -97,11 +105,12 @@
                                     <th>Resultado ($)</th>
                                     <th>Retorno (%)</th>
                                     <th>Causa Salida</th>
+                                    <th>Origen</th>
                                 </tr>
                             </thead>
                             <tbody id="liveTradesTableBody">
                                 <tr>
-                                    <td colspan="8" class="empty-state">Sin operaciones cerradas todavía.</td>
+                                    <td colspan="10" class="empty-state">Sin operaciones cerradas todavía.</td>
                                 </tr>
                             </tbody>
                         </table>

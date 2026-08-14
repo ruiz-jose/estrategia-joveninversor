@@ -103,6 +103,9 @@ class BinanceFuturesTrader(BinanceTestnetTrader):
             return True
         return symbol in self.short_enabled_symbols
 
+    def _short_untradable_reason(self, symbol: str) -> str:
+        return f"{symbol} no esta en SHORT_ENABLED_SYMBOLS (.env) - la cuenta Futures si admite cortos, pero este simbolo no esta habilitado para operarlos"
+
     def _place_stop_order(self, symbol: str, position_type: str, amount: float, stop_price: float):
         """Futures protective stop: a real STOP_MARKET, reduce-only so it can only
         close the existing position (never flip or add to it) and closes fully at

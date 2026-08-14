@@ -344,9 +344,36 @@ document.addEventListener("DOMContentLoaded", () => {
             const data = await res.json();
             if (data.status === "success") {
                 renderLiveBotState(data.state);
+                renderEnvironmentBadge(data.environment);
             }
         } catch (e) {
             console.error("Error loading live bot state:", e);
+        }
+    }
+
+    function renderEnvironmentBadge(env) {
+        const badge = document.getElementById("envBadge");
+        const text = document.getElementById("envBadgeText");
+        if (!env) {
+            badge.className = "status-badge env-badge";
+            text.textContent = "Entorno desconocido";
+            return;
+        }
+
+        const marketLabel = env.market_type === "futures" ? "Futures" : "Spot";
+        const leverageLabel = env.leverage ? ` ${env.leverage}x` : "";
+
+        if (!env.live_trading_enabled) {
+            // No valid API keys loaded: nothing is ever sent to Binance, every
+            // trade is a local-only simulation regardless of the TESTNET flag.
+            badge.className = "status-badge env-badge env-simulated";
+            text.textContent = `📝 SIMULACIÓN LOCAL (${marketLabel}, sin conexión a Binance)`;
+        } else if (env.testnet) {
+            badge.className = "status-badge env-badge env-testnet";
+            text.textContent = `🧪 BINANCE TESTNET — Dinero Ficticio (${marketLabel}${leverageLabel})`;
+        } else {
+            badge.className = "status-badge env-badge env-real";
+            text.textContent = `💵 BINANCE REAL — DINERO REAL (${marketLabel}${leverageLabel})`;
         }
     }
 
@@ -380,19 +407,19 @@ document.addEventListener("DOMContentLoaded", () => {
                 <div class="live-position-card ${pos.type.toLowerCase()}">
                     <span class="trade-badge ${pos.type.toLowerCase()}">${pos.type}</span>
                     <div class="live-position-details">
-                        <span><strong>${pos.symbol}</strong> · Entrada ${pos.entry_time}</span>
+                        <span><strong>${pos.symbol}</strong> · Entrada ${pos.entry_time} ${originBadge(pos.live)}</span>
                         <span>Precio entrada: $${pos.entry_price.toLocaleString()} &nbsp;|&nbsp; SL: $${pos.stop_loss.toLocaleString()} &nbsp;|&nbsp; TP: $${pos.take_profit.toLocaleString()}</span>
                         <span>Tamaño: $${pos.position_size_usd.toFixed(2)} · Fuerza señal: ${pos.strength} · ${pos.reason}</span>
                     </div>
                 </div>
             `).join('');
         } else {
-            posBox.innerHTML = `<span class="empty-state">Sin posición abierta</span>`;
+            posBox.innerHTML = `<div class="empty-state-card">Sin posición abierta en este momento.</div>`;
         }
 
         const tbody = document.getElementById("liveTradesTableBody");
         if (trades.length === 0) {
-            tbody.innerHTML = `<tr><td colspan="9" class="empty-state">Sin operaciones cerradas todavía.</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="10" class="empty-state">Sin operaciones cerradas todavía.</td></tr>`;
         } else {
             tbody.innerHTML = trades.slice().reverse().map(t => {
                 const isWin = t.pnl_usd >= 0;
@@ -407,10 +434,17 @@ document.addEventListener("DOMContentLoaded", () => {
                         <td class="${isWin ? 'pnl-positive' : 'pnl-negative'}">${isWin ? '+' : ''}$${t.pnl_usd.toFixed(2)}</td>
                         <td class="${isWin ? 'pnl-positive' : 'pnl-negative'}">${isWin ? '+' : ''}${t.pnl_pct.toFixed(2)}%</td>
                         <td>${t.exit_reason}</td>
+                        <td>${originBadge(t.live)}</td>
                     </tr>
                 `;
             }).join('');
         }
+    }
+
+    function originBadge(isLive) {
+        return isLive
+            ? `<span class="origin-badge is-live" title="Orden real enviada a Binance"><i class="fa-solid fa-tower-broadcast"></i> Real</span>`
+            : `<span class="origin-badge is-paper" title="Simulación local, no se envió ninguna orden a Binance"><i class="fa-solid fa-flask"></i> Simulado</span>`;
     }
 
     // Initial run: land on the Live Bot view, defer the backtest until the
