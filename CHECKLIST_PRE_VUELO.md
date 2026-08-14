@@ -17,9 +17,12 @@ Antes de poner a rodar el bot de trading con capital real o en producción, es f
 ---
 
 ## 3. ⚖️ Parámetros de Gestión de Riesgo (Risk Management)
-- [ ] **Riesgo por Operación (`risk_per_trade_pct`):** Verifica que esté configurado entre **1.0% y 2.0%** máximo del capital total ($1 a $2 USDT por trade para un capital de $100 USDT).
+- [x] **Riesgo por Operación (`risk_per_trade_pct`):** Configurado en **1.5%** (`trading_bot/config.py`), dentro del rango 1.0%-2.0% exigido aquí.
 - [ ] **Mínimo de Orden Binance (*Min Notional*):** Para $100 USDT, verifica que la posición resultante sea de al menos **$10 USDT** para cumplir con las reglas del exchange.
+- [ ] **Capital mínimo recomendado (~$220-300 USDT):** Con `risk_per_trade_pct=1.5%`, el sizing basado en riesgo solo supera el mínimo de Binance ($50-55) por sí mismo (sin depender de `max_position_alloc_pct=0.60` como muleta) a partir de ~$220-300 USDT de capital, según la distancia del stop (típicamente 2%-6% en 4h). Por debajo de eso (los $100 USDT actuales), `max_position_alloc_pct` es lo que determina el tamaño real de la posición, no `risk_per_trade_pct` — es decir, la concentración por operación seguirá siendo alta hasta que se aumente el capital.
 - [ ] **Stop Loss y Take Profit:** Asegúrate de que todas las operaciones tengan un Stop Loss bien definido (ej. trazado por ATR o estructura) y una relación riesgo/beneficio de al menos **1:2** o **1:2.5**.
+- [x] **Stop Loss real en el exchange:** Desde la corrección de `engine/testnet_trader.py`/`engine/futures_trader.py`, cada posición en vivo coloca una orden real de protección (`STOP_MARKET`/`STOP_LOSS_LIMIT`) en Binance, no solo lógica interna del bot.
+- [x] **Capital reservado por posición abierta:** `engine/testnet_trader.py` ahora descuenta el capital comprometido del balance libre al abrir una posición (y lo devuelve al cerrarla), y respeta `max_concurrent_positions` (`trading_bot/config.py` / `MAX_CONCURRENT_POSITIONS` en `.env`) como tope duro de posiciones simultáneas — antes cada símbolo se dimensionaba sobre el capital total como si fuera la única posición abierta.
 
 ---
 

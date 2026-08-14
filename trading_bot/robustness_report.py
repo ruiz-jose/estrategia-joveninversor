@@ -27,10 +27,12 @@ UNIVERSE = [
     ("ETH/USDT", "4h", 12000),
     ("SOL/USDT", "4h", 12000),
     ("BNB/USDT", "4h", 12000),
+    ("ADA/USDT", "4h", 12000),
     ("BTC/USDT", "1d", 2000),
     ("ETH/USDT", "1d", 2000),
     ("SOL/USDT", "1d", 2000),
     ("BNB/USDT", "1d", 2000),
+    ("ADA/USDT", "1d", 2000),
 ]
 N_FOLDS = 5
 MIN_OOS_TRADES_FOR_VERDICT = 10

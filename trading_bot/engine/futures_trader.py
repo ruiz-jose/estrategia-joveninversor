@@ -34,6 +34,10 @@ class BinanceFuturesTrader(BinanceTestnetTrader):
                 # toward Binance's newer "demo trading" feature - the classic Futures
                 # Testnet REST API (testnet.binancefuture.com) still works, so opt back in.
                 "disableFuturesSandboxWarning": True,
+                # See the matching comment in testnet_trader.py::_init_exchange -
+                # auto-corrects local clock skew instead of every authenticated
+                # call failing with recvWindow errors.
+                "adjustForTimeDifference": True,
             }
         })
 
@@ -98,6 +102,40 @@ class BinanceFuturesTrader(BinanceTestnetTrader):
         if signal_type == 1:
             return True
         return symbol in self.short_enabled_symbols
+
+    def _place_stop_order(self, symbol: str, position_type: str, amount: float, stop_price: float):
+        """Futures protective stop: a real STOP_MARKET, reduce-only so it can only
+        close the existing position (never flip or add to it) and closes fully at
+        the trigger price without needing a limit price like Spot's STOP_LOSS_LIMIT.
+
+        ccxt/Binance route any order carrying a stopPrice through the newer
+        "algo/conditional order" system on USD-M Futures (distinct algoId, separate
+        endpoints) rather than the classic order book - fetch_order/cancel_order
+        need params={"trigger": True} to find it there, see the overrides below.
+        """
+        try:
+            amount = float(self.exchange.amount_to_precision(symbol, amount))
+            stop_price = float(self.exchange.price_to_precision(symbol, stop_price))
+            close_side = self._close_side(position_type)
+            order = self.exchange.create_order(
+                symbol, "STOP_MARKET", close_side, amount, None,
+                {"stopPrice": stop_price, "reduceOnly": True}
+            )
+            return order.get("id")
+        except Exception as e:
+            print(f"[LiveTrading] Error colocando stop order en {symbol}: {e}")
+            return None
+
+    def _cancel_order(self, symbol: str, order_id):
+        if not order_id:
+            return
+        try:
+            self.exchange.cancel_order(order_id, symbol, {"trigger": True})
+        except Exception as e:
+            print(f"[LiveTrading] No se pudo cancelar orden {order_id} en {symbol} (probablemente ya ejecutada/cancelada): {e}")
+
+    def _fetch_stop_order_status(self, symbol: str, order_id):
+        return self.exchange.fetch_order(order_id, symbol, {"trigger": True})
 
 
 if __name__ == "__main__":
