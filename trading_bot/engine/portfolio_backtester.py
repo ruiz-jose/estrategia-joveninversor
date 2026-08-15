@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 
 from core.indicators import add_all_indicators
-from core.strategy import Strategy
+from core.strategy_factory import build_strategy
 from core.risk_manager import RiskManager
 
 
@@ -24,7 +24,7 @@ class PortfolioBacktester:
 
     def __init__(self, config: dict):
         self.config = config
-        self.strategy = Strategy(config)
+        self.strategy = build_strategy(config)
         self.risk_manager = RiskManager(config)
         self.fee_pct = float(config.get("fee_pct", 0.00075))
         self.slippage_pct = float(config.get("slippage_pct", 0.0005))

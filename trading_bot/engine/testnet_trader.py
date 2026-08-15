@@ -12,7 +12,7 @@ from config import DEFAULT_CONFIG
 from engine.data_fetcher import DataFetcher
 from engine.telegram_notifier import TelegramNotifier
 from core.indicators import add_all_indicators
-from core.strategy import Strategy
+from core.strategy_factory import build_strategy
 from core.risk_manager import RiskManager
 
 class BinanceTestnetTrader:
@@ -30,9 +30,13 @@ class BinanceTestnetTrader:
         self._file_lock = threading.Lock()
         self.config = DEFAULT_CONFIG.copy()
         self.fetcher = DataFetcher()
-        self.strategy = Strategy(self.config)
-        self.risk_manager = RiskManager(self.config)
         self.notifier = TelegramNotifier()  # also loads .env into os.environ as a side effect
+        # STRATEGY_TYPE lets an operator pick the strategy before starting the bot
+        # (env var, same pattern as MARKET_TYPE/LEVERAGE) without editing config.py -
+        # must be read after TelegramNotifier() above has loaded .env into os.environ.
+        self.config["strategy_type"] = os.getenv("STRATEGY_TYPE", self.config.get("strategy_type", "confluence"))
+        self.strategy = build_strategy(self.config)
+        self.risk_manager = RiskManager(self.config)
 
         resolved_key, resolved_secret, resolved_testnet = self._resolve_credentials()
         self.testnet = testnet if testnet is not None else resolved_testnet

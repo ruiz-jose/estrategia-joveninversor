@@ -11,7 +11,7 @@ from engine.testnet_trader import BinanceTestnetTrader
 from engine.futures_trader import BinanceFuturesTrader
 from engine.telegram_notifier import TelegramNotifier
 from core.indicators import add_all_indicators
-from core.strategy import Strategy
+from core.strategy_factory import build_strategy
 
 app = Flask(__name__, static_folder="web", static_url_path="")
 fetcher = DataFetcher()
@@ -95,7 +95,7 @@ def scan_signals():
         for sym in symbols:
             df = fetcher.fetch_ohlcv(sym, timeframe, limit=200)
             df_ind = add_all_indicators(df, DEFAULT_CONFIG)
-            strat = Strategy(DEFAULT_CONFIG)
+            strat = build_strategy(DEFAULT_CONFIG)
             df_sig = strat.generate_signals(df_ind)
             
             latest = df_sig.iloc[-1]

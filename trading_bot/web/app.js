@@ -66,6 +66,7 @@ document.addEventListener("DOMContentLoaded", () => {
         btnRunBacktest.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Ejecutando Backtest...`;
 
         const payload = {
+            strategy_type: document.getElementById("strategyType").value,
             symbol: document.getElementById("symbol").value,
             timeframe: document.getElementById("timeframe").value,
             initial_capital: parseFloat(document.getElementById("capital").value),
@@ -88,7 +89,8 @@ document.addEventListener("DOMContentLoaded", () => {
             if (data.status === "success") {
                 lastBacktestData = data.result;
                 updateStats(data.result.summary);
-                renderTradingViewCharts(data.result.candles, data.result.trades, payload.symbol, payload.timeframe);
+                const strategyLabel = payload.strategy_type === "adaptive_regime" ? "Régimen Adaptativo" : "Confluencia";
+                renderTradingViewCharts(data.result.candles, data.result.trades, payload.symbol, payload.timeframe, strategyLabel);
                 renderTradeTable(data.result.trades);
                 if (!equityChartContainer.classList.contains("hidden")) {
                     renderEquityChart(data.result.equity_curve);
@@ -154,8 +156,9 @@ document.addEventListener("DOMContentLoaded", () => {
         };
     }
 
-    function renderTradingViewCharts(candles, trades, symbol, timeframe) {
-        document.getElementById("chartSymbolTitle").textContent = `${symbol} - ${timeframe.toUpperCase()}`;
+    function renderTradingViewCharts(candles, trades, symbol, timeframe, strategyLabel) {
+        const titleSuffix = strategyLabel ? ` · ${strategyLabel}` : "";
+        document.getElementById("chartSymbolTitle").textContent = `${symbol} - ${timeframe.toUpperCase()}${titleSuffix}`;
         document.getElementById("chartCandlesCount").textContent = `${candles.length} Velas Analizadas`;
 
         // Clear previous charts

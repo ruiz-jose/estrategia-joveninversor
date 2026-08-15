@@ -3,6 +3,14 @@ Configuration parameters for the Trading Bot (Quant Profitable Strategy)
 """
 
 DEFAULT_CONFIG = {
+    # Which signal-generation strategy to run - see core/strategy_factory.py and
+    # ESTRATEGIA_REGIMEN_ADAPTATIVO.md. "confluence" is the original model (all
+    # params below down to min_signal_strength). "adaptive_regime" switches between
+    # trend-following and mean-reversion based on ADX (params in that section).
+    # Override with the STRATEGY_TYPE env var to choose before starting the live
+    # bot without editing this file, or per-request via the backtest UI/API.
+    "strategy_type": "confluence",  # "confluence" | "adaptive_regime"
+
     # Market & Exchange
     "symbol": "ETH/USDT",       # Par principal de mayor rendimiento (ETH/USDT)
     # SOL/USDT y ADA/USDT retirados de producción (2026-08-14): SOL disparó su
@@ -44,6 +52,16 @@ DEFAULT_CONFIG = {
     "pullback_ema50_band": 0.018,   # price within ±1.8% of EMA50 triggers Pattern C
     "min_signal_strength": 5,       # all 3 patterns start at score=4 (base confluence); 5 requires
                                      # at least 1 bonus confirmation, so this actually filters signals
+
+    # core/strategy_adaptive.py params - only used when strategy_type="adaptive_regime".
+    # Selected via a train/test split over the most recent 6 months (see
+    # ESTRATEGIA_REGIMEN_ADAPTATIVO.md); not walk-forward-validated over years like
+    # adx_threshold/risk_reward_ratio above, so treat as a starting point, not settled.
+    "adx_regime_threshold": 26,  # ADX >= this: trend-pullback logic. Below: mean-reversion.
+    "bb_len": 20,                # Bollinger Bands period (mean-reversion regime)
+    "bb_mult": 2.0,              # Bollinger Bands std-dev multiplier
+    "rsi_range_long": 35,        # RSI <= this confirms a mean-reversion LONG at the lower band
+    "rsi_range_short": 65,       # RSI >= this confirms a mean-reversion SHORT at the upper band
 
     # Risk Management Parameters
     "risk_per_trade_pct": 1.5, # 1.5% del capital por trade (dentro del 1.0%-2.0% exigido por CHECKLIST_PRE_VUELO.md)

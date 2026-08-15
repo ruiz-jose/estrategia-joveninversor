@@ -295,6 +295,12 @@ body {
     font-weight: 500;
 }
 
+.form-hint {
+    font-size: 11px;
+    color: var(--text-muted);
+    opacity: 0.75;
+}
+
 .form-group select,
 .form-group input {
     background: rgba(11, 14, 20, 0.7);
