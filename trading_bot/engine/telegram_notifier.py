@@ -56,21 +56,6 @@ class TelegramNotifier:
             print(f"[TelegramNotifier] Connection Exception: {e}")
             return False
 
-    def send_trade_opened(self, trade_info: dict) -> bool:
-        """Notifies when a new trade is opened."""
-        pos_type = trade_info.get("type", "LONG")
-        emoji_type = "🟢 LONG (Compra)" if pos_type == "LONG" else "🔴 SHORT (Venta)"
-        symbol = trade_info.get("symbol", "N/A")
-        entry = float(trade_info.get("entry_price", 0))
-        sl = float(trade_info.get("stop_loss", 0))
-        tp = float(trade_info.get("take_profit", 0))
-        size_usd = float(trade_info.get("position_size_usd", 0))
-        reason = html.escape(str(trade_info.get("reason", "Señal técnica detectada")))
-        time_str = trade_info.get("entry_time", datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-
-        sl_pct = ((sl - entry) / entry * 100) if entry > 0 else 0
-        tp_pct = ((tp - entry) / entry * 100) if entry > 0 else 0
-
     def _is_testnet(self) -> bool:
         return (
             os.getenv("TESTNET", "true").lower() == "true" or
@@ -207,3 +192,109 @@ class TelegramNotifier:
             f"🤖 <b>Estado del Sistema:</b> Bot activo y monitoreando operaciones en <b>{mode_str}</b>."
         )
         return self.send_message(msg)
+
+    def get_updates(self, offset: int = None, timeout: int = 25) -> list:
+        """Long-polls Telegram's getUpdates for new messages sent to the bot.
+
+        Used by TelegramCommandHandler (engine/telegram_commands.py) to receive
+        inbound commands (/balance, /abiertas, /cerradas), separate from
+        send_message's outbound-only notifications above.
+        """
+        if not self.bot_token:
+            return []
+        url = f"https://api.telegram.org/bot{self.bot_token}/getUpdates"
+        params = {"timeout": timeout}
+        if offset is not None:
+            params["offset"] = offset
+        try:
+            resp = requests.get(url, params=params, timeout=timeout + 10)
+            resp.raise_for_status()
+            return resp.json().get("result", [])
+        except Exception as e:
+            print(f"[TelegramNotifier] getUpdates error: {e}")
+            return []
+
+    def format_balance_message(self, state: dict) -> str:
+        """/balance - current balance, peak, and net return vs. initial capital."""
+        env_capital = float(os.getenv("INITIAL_CAPITAL", 60.0))
+        initial_capital = float(state.get("initial_capital", env_capital))
+        balance = float(state.get("account_balance", initial_capital))
+        peak_balance = float(state.get("peak_balance", balance))
+        net_return_usd = balance - initial_capital
+        net_return_pct = (net_return_usd / initial_capital * 100.0) if initial_capital > 0 else 0.0
+        pnl_emoji = "📈" if net_return_usd >= 0 else "📉"
+
+        drawdown_pct = (peak_balance - balance) / peak_balance * 100.0 if peak_balance > 0 else 0.0
+        halted = bool(state.get("trading_halted", False))
+        halted_line = "\n🛑 <b>Trading pausado (kill-switch de drawdown activo)</b>" if halted else ""
+
+        mode_badge = "🧪 Binance Testnet (Virtual)" if self._is_testnet() else "💵 Binance Real"
+
+        return (
+            f"💰 <b>BALANCE DEL BOT</b> — {mode_badge}\n\n"
+            f"• <b>Balance actual:</b> ${balance:,.2f} USDT\n"
+            f"• <b>Capital inicial:</b> ${initial_capital:,.2f} USDT\n"
+            f"• <b>Pico de balance:</b> ${peak_balance:,.2f} USDT\n"
+            f"• <b>Rendimiento neto:</b> {pnl_emoji} ${net_return_usd:+,.2f} USDT ({net_return_pct:+.2f}%)\n"
+            f"• <b>Drawdown desde el pico:</b> {drawdown_pct:.2f}%"
+            f"{halted_line}"
+        )
+
+    def format_open_orders_message(self, active_positions: dict, current_prices: dict = None) -> str:
+        """/abiertas - every currently open position, with floating PnL if a
+        current price is available for that symbol."""
+        current_prices = current_prices or {}
+        if not active_positions:
+            return "📭 <b>ÓRDENES ABIERTAS</b>\n\n<i>Sin posiciones abiertas en este momento.</i>"
+
+        blocks = []
+        for symbol, pos in active_positions.items():
+            pos_type = pos.get("type", "LONG")
+            entry = float(pos.get("entry_price", 0))
+            sl = float(pos.get("stop_loss", 0))
+            tp = float(pos.get("take_profit", 0))
+            size_usd = float(pos.get("position_size_usd", 0))
+            strength = pos.get("strength", "?")
+            reason = html.escape(str(pos.get("reason", "")))
+            origin = "Real" if pos.get("live") else "Simulado"
+
+            floating_line = ""
+            price = current_prices.get(symbol)
+            if price and entry > 0:
+                qty = float(pos.get("position_size_asset", 0))
+                floating_pnl = (price - entry) * qty if pos_type == "LONG" else (entry - price) * qty
+                floating_pct = (floating_pnl / size_usd * 100.0) if size_usd > 0 else 0.0
+                emoji = "🟢" if floating_pnl >= 0 else "🔴"
+                floating_line = f"\n  └ <b>PnL flotante:</b> {emoji} ${floating_pnl:+,.2f} ({floating_pct:+.2f}%)"
+
+            blocks.append(
+                f"• <b>{symbol} ({pos_type})</b> — {origin}\n"
+                f"  └ Entrada: ${entry:,.2f} | SL: ${sl:,.2f} | TP: ${tp:,.2f}\n"
+                f"  └ Tamaño: ${size_usd:,.2f} · Fuerza: {strength}\n"
+                f"  └ {reason}"
+                f"{floating_line}"
+            )
+
+        return f"📬 <b>ÓRDENES ABIERTAS</b> ({len(active_positions)})\n\n" + "\n\n".join(blocks)
+
+    def format_closed_orders_message(self, trades: list, limit: int = 10) -> str:
+        """/cerradas - most recent closed trades (newest first), capped at `limit`
+        so the message stays readable in Telegram."""
+        if not trades:
+            return "📭 <b>ÓRDENES CERRADAS</b>\n\n<i>Todavía no hay operaciones cerradas.</i>"
+
+        recent = list(reversed(trades))[:limit]
+        blocks = []
+        for t in recent:
+            is_win = float(t.get("pnl_usd", 0)) >= 0
+            emoji = "🟢" if is_win else "🔴"
+            origin = "Real" if t.get("live") else "Simulado"
+            blocks.append(
+                f"{emoji} <b>#{t.get('id')} {t.get('symbol', 'N/A')} ({t.get('type', '?')})</b> — {origin}\n"
+                f"  └ ${float(t.get('entry_price', 0)):,.2f} → ${float(t.get('exit_price', 0)):,.2f}\n"
+                f"  └ PnL: ${float(t.get('pnl_usd', 0)):+,.2f} ({float(t.get('pnl_pct', 0)):+.2f}%) · {t.get('exit_reason', '')}\n"
+                f"  └ {t.get('exit_time', '')}"
+            )
+
+        header = f"📜 <b>ÓRDENES CERRADAS</b> (últimas {len(recent)} de {len(trades)})\n\n"
+        return header + "\n\n".join(blocks)

@@ -106,28 +106,6 @@ document.addEventListener("DOMContentLoaded", () => {
         } else {
             posBox.innerHTML = `<div class="empty-state-card">Sin posición abierta en este momento.</div>`;
         }
-
-        const tbody = document.getElementById("liveTradesTableBody");
-        if (trades.length === 0) {
-            tbody.innerHTML = `<tr><td colspan="9" class="empty-state">Sin operaciones cerradas todavía.</td></tr>`;
-        } else {
-            tbody.innerHTML = trades.slice().reverse().map(t => {
-                const isWin = t.pnl_usd >= 0;
-                return `
-                    <tr>
-                        <td>#${t.id}</td>
-                        <td>${t.symbol || 'N/A'}</td>
-                        <td><span class="trade-badge ${t.type.toLowerCase()}">${t.type}</span></td>
-                        <td>${t.entry_time}</td>
-                        <td>$${t.entry_price.toLocaleString()}</td>
-                        <td>$${t.exit_price.toLocaleString()}</td>
-                        <td class="${isWin ? 'pnl-positive' : 'pnl-negative'}">${isWin ? '+' : ''}$${t.pnl_usd.toFixed(2)}</td>
-                        <td class="${isWin ? 'pnl-positive' : 'pnl-negative'}">${isWin ? '+' : ''}${t.pnl_pct.toFixed(2)}%</td>
-                        <td>${t.exit_reason}</td>
-                    </tr>
-                `;
-            }).join('');
-        }
     }
 
     function originBadge(isLive) {

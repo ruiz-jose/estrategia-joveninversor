@@ -9,6 +9,7 @@ from engine.data_fetcher import DataFetcher
 from engine.testnet_trader import BinanceTestnetTrader
 from engine.futures_trader import BinanceFuturesTrader
 from engine.telegram_notifier import TelegramNotifier
+from engine.telegram_commands import TelegramCommandHandler
 from core.indicators import add_all_indicators
 from core.strategy_factory import build_strategy
 
@@ -170,6 +171,7 @@ def start_market_check_scheduler(interval_sec: int = 3600):
 if __name__ == "__main__":
     start_midday_scheduler()
     start_market_check_scheduler(interval_sec=3600)
+    TelegramCommandHandler(trader=testnet_trader, notifier=testnet_trader.notifier).start()
     port = int(os.environ.get("PORT", 5000))
     print(f"Starting Trading Bot Server on http://localhost:{port} ...")
     app.run(host="0.0.0.0", port=port, debug=False)
