@@ -48,6 +48,9 @@ class BinanceTestnetTrader:
         # the balance-reservation fix below - bounds worst-case correlated exposure
         # even if sizing math alone would still allow another position to fit.
         self.max_concurrent_positions = int(os.getenv("MAX_CONCURRENT_POSITIONS", 3))
+        # Spot has no leverage/liquidation risk in this bot's model; BinanceFuturesTrader
+        # overwrites this from LEVERAGE in its own _init_exchange override.
+        self.leverage = 1
 
         self._init_exchange(api_key or "", api_secret or "")
 
@@ -505,9 +508,41 @@ class BinanceTestnetTrader:
                 ema50=float(latest_candle["ema_50"])
             )
 
-            # Skip entries too small to actually place on Binance.
+            # Skip entries too small to actually place on Binance. This can persist
+            # for a long time once free balance drops near max_position_alloc_pct's
+            # floor (see config.py's min_notional_usd note), silently freezing new
+            # entries well before the drawdown kill-switch would fire - so alert once
+            # per symbol per blocked episode instead of only printing to the console.
             if levels["position_size_usd"] < self.min_notional_usd:
                 print(f"Signal skipped: position size ${levels['position_size_usd']:.2f} below min notional ${self.min_notional_usd:.2f}")
+                alerts = data.setdefault("min_notional_alerts", {})
+                if not alerts.get(symbol, False):
+                    alerts[symbol] = True
+                    env_lbl = self._env_label()
+                    self.notifier.send_message(
+                        f"⚠️ <b>Capital insuficiente [{env_lbl}]</b>\n\n"
+                        f"Señal en {symbol} (fuerza {int(latest_candle['signal_strength'])}) ignorada: "
+                        f"tamaño calculado ${levels['position_size_usd']:.2f} está por debajo del mínimo "
+                        f"${self.min_notional_usd:.2f}.\nBalance libre: ${balance:.2f}. No se abrirán nuevas "
+                        f"operaciones en este símbolo hasta liberar capital (cerrar posiciones) o aumentar el balance."
+                    )
+                return
+            data.setdefault("min_notional_alerts", {})[symbol] = False
+
+            # Reject entries whose stop-loss sits too close to (or past) where the
+            # exchange would force-liquidate this position at the configured leverage
+            # - previously nothing checked this, so raising LEVERAGE could silently
+            # let a liquidation fire before the bot's own SL order ever would.
+            if not self.risk_manager.is_sl_within_liquidation_buffer(
+                sl_distance=levels["sl_distance"], entry_price=fill_price, leverage=self.leverage
+            ):
+                print(f"Signal skipped on {symbol}: SL distance too close to estimated liquidation at {self.leverage}x leverage.")
+                self.notifier.send_message(
+                    f"🛑 <b>Riesgo de liquidación [{self._env_label()}]</b>\n\n"
+                    f"Señal en {symbol} ignorada: el stop-loss calculado queda demasiado cerca del precio "
+                    f"de liquidación estimado a {self.leverage}x de leverage. Reducí el leverage o revisá "
+                    f"atr_sl_multiplier antes de operar este símbolo."
+                )
                 return
 
             # Real order placement is only attempted for directions the account/market

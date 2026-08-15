@@ -51,6 +51,7 @@ class BinanceFuturesTrader(BinanceTestnetTrader):
                 }
 
         leverage = int(os.getenv("LEVERAGE", 2))
+        self.leverage = leverage
         margin_type = os.getenv("MARGIN_TYPE", "ISOLATED").upper()
         symbols = self.config.get("symbols") or [self.config.get("symbol", "BTC/USDT")]
         for symbol in symbols:

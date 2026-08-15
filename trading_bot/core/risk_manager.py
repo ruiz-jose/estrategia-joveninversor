@@ -54,6 +54,32 @@ class RiskManager:
             "position_size_usd": float(position_size_usd)
         }
 
+    def liquidation_distance_pct(self, leverage: int, maintenance_margin_rate: float = 0.005) -> float:
+        """
+        Rough estimate of the adverse price-move fraction (of entry price) that
+        triggers isolated-margin liquidation at the given leverage. Binance's real
+        maintenance margin rate varies by notional bracket (~0.4%-several % as
+        notional grows); 0.5% is a reasonable mid-range approximation for the small
+        position sizes this bot trades, not an exact per-bracket figure, and fees
+        are ignored. Good enough to catch a stop-loss placed unsafely close to (or
+        past) liquidation, not to price liquidation precisely.
+        """
+        if leverage <= 1:
+            return 1.0
+        return max(1.0 / leverage - maintenance_margin_rate, 0.0)
+
+    def is_sl_within_liquidation_buffer(self, sl_distance: float, entry_price: float, leverage: int, safety_factor: float = 0.5) -> bool:
+        """
+        True if the stop-loss should fire well before the exchange would force-
+        liquidate the position, at the configured leverage. safety_factor=0.5 means
+        the SL must sit within half of the estimated liquidation distance, so normal
+        slippage/fee drift can't let liquidation trigger first.
+        """
+        if leverage <= 1 or entry_price <= 0:
+            return True
+        sl_pct = sl_distance / entry_price
+        return sl_pct <= self.liquidation_distance_pct(leverage) * safety_factor
+
     def update_trailing_stop(self, current_price: float, entry_price: float, current_sl: float, signal_type: int, sl_distance: float):
         """
         Break-Even Trailing Stop Loss:

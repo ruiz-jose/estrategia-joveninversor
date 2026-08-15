@@ -32,6 +32,15 @@ class PortfolioBacktester:
         self.min_signal_strength = float(config.get("min_signal_strength", 4))
         self.min_notional_usd = float(config.get("min_notional_usd", 10.0))
         self.max_concurrent_positions = int(config.get("max_concurrent_positions", 3))
+        self.funding_rate_pct_per_8h = float(config.get("funding_rate_pct_per_8h", 0.01)) / 100.0
+
+    def _funding_cost(self, pos: dict, exit_timestamp) -> float:
+        """Approximate funding paid over the life of a perpetual futures position."""
+        entry_ts = pd.Timestamp(pos["entry_time"])
+        exit_ts = pd.Timestamp(exit_timestamp)
+        hours_held = max((exit_ts - entry_ts).total_seconds() / 3600.0, 0.0)
+        periods = hours_held / 8.0
+        return pos["position_size_usd"] * self.funding_rate_pct_per_8h * periods
 
     def run(self, dfs_by_symbol: dict) -> dict:
         """
@@ -137,7 +146,8 @@ class PortfolioBacktester:
                         else:
                             pnl_gross = (pos["entry_price"] - exit_price) * pos["position_size_asset"]
                         fee = (pos["position_size_usd"] + (pos["position_size_asset"] * exit_price)) * self.fee_pct
-                        pnl_net = pnl_gross - fee
+                        funding = self._funding_cost(pos, ts)
+                        pnl_net = pnl_gross - fee - funding
                         # Return the reserved capital plus net PnL - see the class
                         # docstring on the shared balance representing free cash only.
                         balance += pos["position_size_usd"] + pnl_net
@@ -211,7 +221,8 @@ class PortfolioBacktester:
                 else:
                     pnl_gross = (pos["entry_price"] - exit_price) * pos["position_size_asset"]
                 fee = (pos["position_size_usd"] + (pos["position_size_asset"] * exit_price)) * self.fee_pct
-                pnl_net = pnl_gross - fee
+                funding = self._funding_cost(pos, last_ts)
+                pnl_net = pnl_gross - fee - funding
                 balance += pos["position_size_usd"] + pnl_net
                 trades.append({
                     "id": len(trades) + 1,

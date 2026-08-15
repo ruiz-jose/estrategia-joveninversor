@@ -15,7 +15,9 @@ DEFAULT_CONFIG = {
     # el deterioro continua. Ver trading_bot/robustness_report.py y CHECKLIST.
     "symbols": ["ETH/USDT", "BTC/USDT"],
     "timeframe": "4h",       # Temporalidad óptima (4h para swing trading equilibrado; 1d para macrotendencias)
-    "initial_capital": 100.0, # Initial balance in USDT (Binance Futures Testnet)
+    "initial_capital": 300.0, # Initial balance in USDT (Binance Futures Testnet) - raised from $100
+                               # per CHECKLIST_PRE_VUELO.md's ~$220-300 recommendation, so risk-based
+                               # sizing clears Binance's min notional without leaning on max_position_alloc_pct.
     
     # Strategy Indicator Parameters
     "ema_fast": 20,          # EMA 20
@@ -50,6 +52,12 @@ DEFAULT_CONFIG = {
     "atr_sl_multiplier": 2.0,  # Dynamic SL multiplier
     "trailing_stop": True,     # Enable Break-Even trailing
     "slippage_pct": 0.0005,    # 0.05% adverse slippage on entries and stop-loss fills
+    # Perpetual futures funding, charged/paid every 8h on position notional - absent
+    # from backtests until now, so historical PF/return figures never reflected a
+    # cost the live futures bot actually pays. Rate floats and can go negative on
+    # Binance; 0.01%/8h is a conservative fixed approximation (cost, not benefit)
+    # used for backtesting only, since real historical rates aren't fetched.
+    "funding_rate_pct_per_8h": 0.01,
     "max_drawdown_pct": 25.0,  # Halt new entries once drawdown from peak equity exceeds this
     # Hard cap on positions open at once across every symbol in `symbols` (mirrors
     # MAX_CONCURRENT_POSITIONS in .env, used by engine/testnet_trader.py in production
