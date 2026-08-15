@@ -83,7 +83,6 @@ class Strategy:
                 # Pattern A: first bullish ST bar confirmed by +DI dominance
                 score = 4
                 rl = [f"ST Flip LONG", f"+DI {plus_di:.1f}>{minus_di:.1f}", f"ADX {adx:.1f}"]
-                if macro_bull:             score += 1; rl.append("EMA200↑")
                 if sqz_mom > 0:            score += 1; rl.append("Sqz+")
                 if adx >= adx_thresh + 10: score += 1; rl.append("ADX++")
                 long_fired = True
@@ -92,7 +91,6 @@ class Strategy:
                 # Pattern B: squeeze released bullish with DI confirmation
                 score = 4
                 rl = ["Sqz Release LONG", f"+DI {plus_di:.1f}", f"Mom {sqz_mom:.4f}"]
-                if macro_bull:         score += 1; rl.append("EMA200↑")
                 if adx >= adx_thresh:  score += 1; rl.append(f"ADX {adx:.1f}")
                 if st_bull:            score += 1; rl.append("ST Bull")
                 long_fired = True
@@ -123,7 +121,6 @@ class Strategy:
                 # Pattern A: first bearish ST bar confirmed by -DI dominance
                 score = 4
                 rl = ["ST Flip SHORT", f"-DI {minus_di:.1f}>{plus_di:.1f}", f"ADX {adx:.1f}"]
-                if macro_bear:             score += 1; rl.append("EMA200↓")
                 if sqz_mom < 0:            score += 1; rl.append("Sqz-")
                 if adx >= adx_thresh + 10: score += 1; rl.append("ADX++")
 
@@ -131,7 +128,6 @@ class Strategy:
                 # Pattern B: squeeze released bearish with DI confirmation
                 score = 4
                 rl = ["Sqz Release SHORT", f"-DI {minus_di:.1f}", f"Mom {sqz_mom:.4f}"]
-                if macro_bear:         score += 1; rl.append("EMA200↓")
                 if adx >= adx_thresh:  score += 1; rl.append(f"ADX {adx:.1f}")
                 if st_bear:            score += 1; rl.append("ST Bear")
 
