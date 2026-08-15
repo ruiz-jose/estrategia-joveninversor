@@ -6,7 +6,6 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from config import DEFAULT_CONFIG
 from engine.data_fetcher import DataFetcher
-from engine.backtester import Backtester
 from engine.testnet_trader import BinanceTestnetTrader
 from engine.futures_trader import BinanceFuturesTrader
 from engine.telegram_notifier import TelegramNotifier
@@ -32,32 +31,6 @@ def static_proxy(path):
 @app.route("/api/config", methods=["GET"])
 def get_config():
     return jsonify({"status": "success", "config": DEFAULT_CONFIG})
-
-@app.route("/api/backtest", methods=["POST"])
-def run_backtest():
-    try:
-        user_params = request.get_json() or {}
-        config = DEFAULT_CONFIG.copy()
-        config.update(user_params)
-        
-        symbol = config.get("symbol", "SOL/USDT")
-        timeframe = config.get("timeframe", "1d")
-        
-        # Fetch OHLCV data
-        df = fetcher.fetch_ohlcv(symbol, timeframe, limit=500)
-        
-        # Run Backtest
-        backtester = Backtester(config)
-        result = backtester.run(df)
-        
-        return jsonify({
-            "status": "success",
-            "result": result
-        })
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        return jsonify({"status": "error", "message": str(e)}), 500
 
 def _environment_info():
     """Describes which real-world environment the live bot is actually wired to,

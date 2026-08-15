@@ -10,8 +10,6 @@
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
     <!-- FontAwesome Icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <!-- TradingView Lightweight Charts Library -->
-    <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -37,17 +35,9 @@
             </div>
         </header>
 
-        <!-- Main Nav: Live Bot (default) vs Simulator -->
-        <nav class="main-nav">
-            <button class="nav-tab active" id="navBtnLive">
-                <i class="fa-solid fa-satellite-dish"></i> Bot en Vivo
-            </button>
-            <button class="nav-tab" id="navBtnSimulator">
-                <i class="fa-solid fa-flask"></i> Simulador / Backtest
-            </button>
-        </nav>
-
-        <!-- LIVE BOT VIEW (default screen) -->
+        <!-- LIVE BOT VIEW (only screen: this dashboard only reflects real/testnet
+             trading against Binance - backtesting/simulation happens locally,
+             outside this UI) -->
         <main class="view-panel live-grid" id="viewLive">
 
             <!-- Live Bot Status (main column) -->
@@ -105,12 +95,11 @@
                                     <th>Resultado ($)</th>
                                     <th>Retorno (%)</th>
                                     <th>Causa Salida</th>
-                                    <th>Origen</th>
                                 </tr>
                             </thead>
                             <tbody id="liveTradesTableBody">
                                 <tr>
-                                    <td colspan="10" class="empty-state">Sin operaciones cerradas todavía.</td>
+                                    <td colspan="9" class="empty-state">Sin operaciones cerradas todavía.</td>
                                 </tr>
                             </tbody>
                         </table>
@@ -127,195 +116,6 @@
                     </div>
                 </div>
             </aside>
-        </main>
-
-        <!-- SIMULATOR / BACKTEST VIEW (hidden until selected) -->
-        <main class="view-panel dashboard-grid hidden" id="viewSimulator">
-
-            <!-- Left Sidebar: Controls & Parameters -->
-            <aside class="sidebar-card glass-panel">
-                <div class="card-header">
-                    <h2><i class="fa-solid fa-sliders"></i> Configuración de Estrategia</h2>
-                </div>
-
-                <form id="configForm">
-                    <div class="form-group">
-                        <label for="strategyType">Estrategia</label>
-                        <select id="strategyType" name="strategyType">
-                            <option value="confluence" selected>Confluencia (Supertrend+EMA+MACD+RSI+ADX+Squeeze)</option>
-                            <option value="adaptive_regime">Régimen Adaptativo (Tendencia + Reversión a la media)</option>
-                        </select>
-                        <span class="form-hint">Ver ESTRATEGIA_REGIMEN_ADAPTATIVO.md para el detalle y la evidencia de cada una.</span>
-                    </div>
-
-                    <div class="form-group">
-                        <label for="symbol">Activo / Par</label>
-                        <select id="symbol" name="symbol">
-                            <option value="SOL/USDT" selected>SOL/USDT (Solana - Recomendado)</option>
-                            <option value="BTC/USDT">BTC/USDT (Bitcoin)</option>
-                            <option value="ETH/USDT">ETH/USDT (Ethereum)</option>
-                            <option value="BNB/USDT">BNB/USDT (Binance Coin)</option>
-                            <option value="ADA/USDT">ADA/USDT (Cardano)</option>
-                        </select>
-                    </div>
-
-                    <div class="form-group">
-                        <label for="timeframe">Temporalidad (Recomendado 1d o 4h para rentabilidad)</label>
-                        <select id="timeframe" name="timeframe">
-                            <option value="1d" selected>1 Día (Macro Trend - Máxima Rentabilidad)</option>
-                            <option value="4h">4 Horas (Swing Trading)</option>
-                            <option value="1h">1 Hora (Intradía)</option>
-                            <option value="15m">15 Minutos (Scalping)</option>
-                        </select>
-                    </div>
-
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label for="capital">Capital Inicial ($)</label>
-                            <input type="number" id="capital" value="100" min="1" step="1">
-                        </div>
-                        <div class="form-group">
-                            <label for="riskPct">Riesgo / Trade (%)</label>
-                            <input type="number" id="riskPct" value="2.0" step="0.5" min="0.1" max="10">
-                        </div>
-                    </div>
-
-                    <div class="divider"><span>Indicadores Cuantitativos</span></div>
-
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label for="emaFast">EMA Rápida</label>
-                            <input type="number" id="emaFast" value="20">
-                        </div>
-                        <div class="form-group">
-                            <label for="emaMedium">EMA Media</label>
-                            <input type="number" id="emaMedium" value="50">
-                        </div>
-                        <div class="form-group">
-                            <label for="emaSlow">EMA Lenta</label>
-                            <input type="number" id="emaSlow" value="200">
-                        </div>
-                    </div>
-
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label for="rrRatio">Ratio R/R (1 : X)</label>
-                            <input type="number" id="rrRatio" value="2.5" step="0.1">
-                        </div>
-                        <div class="form-group">
-                            <label for="adxThresh">Min ADX</label>
-                            <input type="number" id="adxThresh" value="18">
-                        </div>
-                    </div>
-
-                    <button type="submit" class="btn-primary" id="btnRunBacktest">
-                        <i class="fa-solid fa-play"></i> Ejecutar Modelo Rentable
-                    </button>
-                </form>
-            </aside>
-
-            <!-- Center & Right: Dashboard Content -->
-            <section class="main-content">
-
-                <!-- Stat Cards Row -->
-                <div class="stats-row">
-                    <div class="stat-card glass-panel">
-                        <div class="stat-icon profit"><i class="fa-solid fa-wallet"></i></div>
-                        <div class="stat-info">
-                            <span class="stat-label">Balance Final</span>
-                            <h3 id="statBalance">$100.00</h3>
-                            <span class="stat-sub" id="statNetPnl">+$0.00 (0.00%)</span>
-                        </div>
-                    </div>
-
-                    <div class="stat-card glass-panel">
-                        <div class="stat-icon winrate"><i class="fa-solid fa-trophy"></i></div>
-                        <div class="stat-info">
-                            <span class="stat-label">Win Rate %</span>
-                            <h3 id="statWinRate">0.0%</h3>
-                            <span class="stat-sub" id="statTradesCount">0 Trades Totales</span>
-                        </div>
-                    </div>
-
-                    <div class="stat-card glass-panel">
-                        <div class="stat-icon pf"><i class="fa-solid fa-chart-pie"></i></div>
-                        <div class="stat-info">
-                            <span class="stat-label">Profit Factor</span>
-                            <h3 id="statProfitFactor">0.00</h3>
-                            <span class="stat-sub" id="statSharpe">Sharpe: 0.00</span>
-                        </div>
-                    </div>
-
-                    <div class="stat-card glass-panel">
-                        <div class="stat-icon drawdown"><i class="fa-solid fa-arrow-trend-down"></i></div>
-                        <div class="stat-info">
-                            <span class="stat-label">Max Drawdown</span>
-                            <h3 id="statMaxDD">0.0%</h3>
-                            <span class="stat-sub">Riesgo Máximo</span>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Main Chart Container (TradingView Lightweight Charts) -->
-                <div class="chart-container glass-panel">
-                    <div class="chart-header">
-                        <div class="chart-title">
-                            <i class="fa-solid fa-chart-candlestick"></i>
-                            <h2 id="chartSymbolTitle">SOL/USDT - 1d</h2>
-                            <span class="badge" id="chartCandlesCount">500 Velas</span>
-                            <span class="badge tv-badge"><i class="fa-solid fa-bolt"></i> TradingView Engine</span>
-                        </div>
-                        <div class="chart-actions">
-                            <button class="btn-toggle active" id="btnTabChart">Gráfico & Indicadores</button>
-                            <button class="btn-toggle" id="btnTabEquity">Curva de Capital</button>
-                        </div>
-                    </div>
-
-                    <div id="tvChartContainer" class="chart-body-wrapper">
-                        <div id="tvMainChart" class="tv-subchart main"></div>
-                        <div id="tvRsiChart" class="tv-subchart indicator"></div>
-                        <div id="tvMacdChart" class="tv-subchart indicator"></div>
-                    </div>
-
-                    <div id="equityChartContainer" class="chart-body-wrapper hidden">
-                        <div id="tvEquityChart" class="tv-subchart full"></div>
-                    </div>
-                </div>
-
-                <!-- Trade History Table -->
-                <div class="table-container glass-panel">
-                    <div class="table-header">
-                        <h2><i class="fa-solid fa-list-check"></i> Historial de Operaciones Ejecutadas</h2>
-                        <span class="badge" id="tradesTableCount">0 Operaciones</span>
-                    </div>
-
-                    <div class="table-wrapper">
-                        <table class="data-table" id="tradesTable">
-                            <thead>
-                                <tr>
-                                    <th>#</th>
-                                    <th>Par</th>
-                                    <th>Tipo</th>
-                                    <th>Entrada</th>
-                                    <th>Precio Entrada</th>
-                                    <th>Precio Salida</th>
-                                    <th>Stop Loss</th>
-                                    <th>Take Profit</th>
-                                    <th>Resultado ($)</th>
-                                    <th>Retorno (%)</th>
-                                    <th>Causa Salida</th>
-                                </tr>
-                            </thead>
-                            <tbody id="tradesTableBody">
-                                <tr>
-                                    <td colspan="10" class="empty-state">Ejecuta el modelo para ver las operaciones rentables.</td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-
-            </section>
         </main>
     </div>
 

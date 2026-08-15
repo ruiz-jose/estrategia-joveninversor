@@ -52,8 +52,24 @@ El sizing, SL/TP (ATR + risk/reward), comisiones, slippage y funding son **los m
 
 ## 4. Cómo elegir la estrategia
 
-### En el simulador / backtest (dashboard web)
-Pestaña **Simulador / Backtest** → primer campo del formulario, **"Estrategia"**. Elegí `Confluencia` o `Régimen Adaptativo` y corré el backtest — no hace falta tocar código.
+### Backtests / simulación
+El dashboard web **ya no tiene simulador** (se sacó a propósito: ese panel solo debe reflejar trading real/testnet contra Binance). Los backtests se corren localmente en Python, por ejemplo:
+
+```python
+from engine.backtester import Backtester
+from config import DEFAULT_CONFIG
+
+config = DEFAULT_CONFIG.copy()
+config["strategy_type"] = "adaptive_regime"  # o "confluence"
+config["symbol"] = "BTC/USDT"
+config["timeframe"] = "4h"
+
+df = fetcher.fetch_ohlcv(config["symbol"], config["timeframe"], limit=1500)
+resultado = Backtester(config).run(df)
+print(resultado["summary"])
+```
+
+`Backtester`/`PortfolioBacktester` eligen la estrategia automáticamente vía `core/strategy_factory.py` según `config["strategy_type"]`.
 
 ### En el bot en vivo / testnet
 El bot en vivo no tiene un botón de "iniciar" en el dashboard (corre automáticamente al levantar `server.py`), así que la estrategia se elige **antes de arrancarlo**, con la variable de entorno `STRATEGY_TYPE` en [`.env`](.env):
